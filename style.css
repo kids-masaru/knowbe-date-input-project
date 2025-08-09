@@ -1,0 +1,65 @@
+/* style.css (コンパクト版) */
+
+/* Googleフォントのインポート */
+@import url('https://fonts.googleapis.com/css2?family=Noto+Sans+JP:wght@400;500;700&display=swap');
+
+/* 全体のフォントと背景設定 */
+body {
+    font-family: 'Noto+Sans JP', sans-serif;
+    background-color: #f0f2f6;
+}
+
+/* メインコンテナの調整 */
+.main .block-container {
+    padding-top: 1rem;
+    padding-bottom: 1rem;
+}
+
+/* SVGタイトルコンテナのスタイル */
+.svg-title-container {
+    margin-bottom: 1rem;
+}
+
+/* --- ファイルアップローダーのカスタムスタイル --- */
+div[data-testid="stFileUploader"] {
+    border: 2px dashed #93c5fd;
+    background-color: #eff6ff;
+    padding: 1.5rem; /* パディングを縮小 */
+    border-radius: 0.5rem;
+}
+/* アップローダー内のテキストラベル */
+div[data-testid="stFileUploader"] label {
+    font-weight: 500;
+    font-size: 1rem; /* フォントサイズを縮小 */
+    color: #1e3a8a;
+}
+div[data-testid="stFileUploader"] section p {
+    font-size: 0.85rem;
+    color: #3b82f6;
+}
+
+/* --- ボタンのカスタムスタイル --- */
+button[data-testid="stButton"] > button {
+    background-color: #2563eb;
+    color: white;
+    font-weight: 700;
+    padding: 0.6rem 1.2rem; /* パディングを縮小 */
+    border-radius: 0.5rem;
+    border: none;
+    transition: background-color 0.2s, box-shadow 0.2s;
+}
+button[data-testid="stButton"] > button:hover {
+    background-color: #1d4ed8;
+}
+button[data-testid="stButton"] > button:disabled {
+    background-color: #9ca3af;
+    opacity: 0.7;
+}
+
+/* --- アラートメッセージのスタイル --- */
+div[data-testid="stAlert"] {
+    border-radius: 0.5rem;
+    border-width: 1px;
+    padding: 0.8rem 1rem; /* パディングを縮小 */
+    font-size: 0.9rem; /* フォントサイズを縮小 */
+}
