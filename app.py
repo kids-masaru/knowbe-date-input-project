@@ -76,9 +76,8 @@ if is_pressed:
 
                 # 3. Drive上のExcelファイル（B）をダウンロードして中身を取得
                 request = drive_service.files().get_media(fileId=file_id)
-                fh = io.BytesIO()
-                downloader = request.execute(fh)
-                fh.seek(0)
+                file_content_bytes = request.execute() # ← まずファイルの中身を直接取得
+                fh = io.BytesIO(file_content_bytes)    # ← 取得したデータからメモリ上のファイルを作成
                 
                 # 4. ファイルBの全シートを読み込む
                 # 1枚目のシートだけを新しいデータで置き換え、残りは保持する
@@ -109,3 +108,4 @@ if is_pressed:
 
         except Exception as e:
             result_placeholder.error(f"**エラーが発生しました:** {e}")
+
