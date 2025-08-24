@@ -313,38 +313,48 @@ if is_pressed:
                         st.write(f"  2枚目シート名: '{sheet2.title}', 最大行: {sheet2.max_row}, 最大列: {sheet2.max_column}")
                         st.write(f"  3枚目シート名: '{sheet3.title}', 最大行: {sheet3.max_row}, 最大列: {sheet3.max_column}")
                         
-                        # === 2枚目の1行目を詳細確認 ===
-                        st.write("🔍 2枚目の1行目の内容を詳細確認中...")
-                        sheet2_row1_debug = []
+                        # === 2枚目の3行目を詳細確認 ===
+                        st.write("🔍 2枚目の3行目の内容を詳細確認中...")
+                        sheet2_row3_debug = []
                         for col in range(1, min(sheet2.max_column + 1, 30)):  # 最初の30列まで確認
-                            cell_val = sheet2.cell(row=1, column=col).value
+                            cell_val = sheet2.cell(row=3, column=col).value  # 3行目に変更
                             col_letter = col_num_to_letter(col)
-                            sheet2_row1_debug.append(f"{col_letter}{col}: '{cell_val}' ({type(cell_val).__name__})")
+                            sheet2_row3_debug.append(f"{col_letter}{col}: '{cell_val}' ({type(cell_val).__name__})")
                         
-                        st.write("2枚目1行目の内容:")
-                        for debug_info in sheet2_row1_debug:
+                        st.write("2枚目3行目の内容:")
+                        for debug_info in sheet2_row3_debug:
                             st.write(f"  {debug_info}")
                         
-                        # === 3枚目の1行目を詳細確認 ===
-                        st.write("🔍 3枚目の1行目の内容を詳細確認中...")
+                        # === 3枚目の1行目を詳細確認（数式と計算結果両方） ===
+                        st.write("🔍 3枚目の1行目の内容を詳細確認中（数式と計算結果）...")
                         sheet3_row1_debug = []
                         for col in range(15, min(sheet3.max_column + 1, 45)):  # R列(18)付近から確認
-                            cell_val = sheet3.cell(row=1, column=col).value
+                            cell = sheet3.cell(row=1, column=col)
+                            cell_val = cell.value
                             col_letter = col_num_to_letter(col)
-                            sheet3_row1_debug.append(f"{col_letter}{col}: '{cell_val}' ({type(cell_val).__name__})")
+                            
+                            # 数式の場合は計算結果も表示を試みる
+                            if isinstance(cell_val, str) and cell_val.startswith('='):
+                                try:
+                                    # data_onlyで計算結果を取得（別途後で実行）
+                                    sheet3_row1_debug.append(f"{col_letter}{col}: 数式='{cell_val}' (計算結果は後で取得)")
+                                except:
+                                    sheet3_row1_debug.append(f"{col_letter}{col}: 数式='{cell_val}' (計算結果取得不可)")
+                            else:
+                                sheet3_row1_debug.append(f"{col_letter}{col}: '{cell_val}' ({type(cell_val).__name__})")
                         
                         st.write("3枚目1行目の内容（R列付近）:")
                         for debug_info in sheet3_row1_debug:
                             st.write(f"  {debug_info}")
                         
-                        # === 2枚目の日付情報を取得（全列を詳細チェック）===
+                        # === 2枚目の日付情報を取得（3行目、D列から3列おき）===
                         dates_sheet2 = {}
-                        st.write("🔍 2枚目の日付情報を検索中（1行目）...")
+                        st.write("🔍 2枚目の日付情報を検索中（3行目）...")
                         
-                        # 全ての列を確認して日付らしき値を探す
+                        # 全ての列を確認して日付らしき値を探す（3行目）
                         date_candidates_sheet2 = []
                         for col in range(1, min(sheet2.max_column + 1, 100)):
-                            date_val = sheet2.cell(row=1, column=col).value
+                            date_val = sheet2.cell(row=3, column=col).value  # 3行目に変更
                             if date_val is not None:
                                 col_letter = col_num_to_letter(col)
                                 date_candidates_sheet2.append(f"{col_letter}{col}: '{date_val}' ({type(date_val).__name__})")
@@ -378,15 +388,37 @@ if is_pressed:
                         st.write(f"2枚目の全セル値（値があるもの）: {date_candidates_sheet2[:20]}")  # 最初の20個
                         st.write(f"2枚目で見つかった日付数: {len(dates_sheet2)}")
                         
-                        # === 3枚目の日付情報を取得（全列を詳細チェック）===
+                        # === 3枚目の日付情報を取得（1行目、数式の計算結果を取得）===
                         dates_sheet3 = {}
-                        st.write("🔍 3枚目の日付情報を検索中（1行目）...")
+                        st.write("🔍 3枚目の日付情報を検索中（1行目、数式の結果値）...")
                         
-                        # 全ての列を確認して日付らしき値を探す
+                        # 全ての列を確認して日付らしき値を探す（1行目、計算結果を取得）
                         date_candidates_sheet3 = []
                         for col in range(1, min(sheet3.max_column + 1, 100)):
-                            date_val = sheet3.cell(row=1, column=col).value
-                            if date_val is not None:
+                            cell = sheet3.cell(row=1, column=col)
+                            
+                            # 数式の場合は計算結果を取得、そうでなければ値をそのまま取得
+                            if cell.value is not None:
+                                if isinstance(cell.value, str) and cell.value.startswith('='):
+                                    # 数式の場合は、Excelで計算された結果を取得
+                                    try:
+                                        # data_onlyで開き直す必要がある場合があるが、まず表示値で試す
+                                        display_value = cell.displayed_value if hasattr(cell, 'displayed_value') else cell.value
+                                        if display_value != cell.value:
+                                            date_val = display_value
+                                        else:
+                                            # 数式の結果を取得できない場合、スキップ
+                                            col_letter = col_num_to_letter(col)
+                                            date_candidates_sheet3.append(f"{col_letter}{col}: 数式='{cell.value}' (計算結果取得不可)")
+                                            continue
+                                    except:
+                                        # 計算結果が取得できない場合、スキップ
+                                        col_letter = col_num_to_letter(col)
+                                        date_candidates_sheet3.append(f"{col_letter}{col}: 数式='{cell.value}' (計算結果取得失敗)")
+                                        continue
+                                else:
+                                    date_val = cell.value
+                                
                                 col_letter = col_num_to_letter(col)
                                 date_candidates_sheet3.append(f"{col_letter}{col}: '{date_val}' ({type(date_val).__name__})")
                                 
@@ -418,6 +450,45 @@ if is_pressed:
                         
                         st.write(f"3枚目の全セル値（値があるもの）: {date_candidates_sheet3[:20]}")  # 最初の20個
                         st.write(f"3枚目で見つかった日付数: {len(dates_sheet3)}")
+                        
+                        # === 数式の計算結果が取得できない場合の代替手段 ===
+                        if len(dates_sheet3) == 0:
+                            st.warning("⚠️ 数式の計算結果が取得できませんでした。data_onlyで再試行します...")
+                            
+                            # data_only=Trueで再度読み込み（数式ではなく計算結果を取得）
+                            fh.seek(0)  # ストリームを先頭に戻す
+                            workbook_data_only = openpyxl.load_workbook(fh, data_only=True)
+                            sheet3_data_only = workbook_data_only.worksheets[2] if len(workbook_data_only.worksheets) >= 3 else None
+                            
+                            if sheet3_data_only:
+                                st.write("🔄 data_onlyで3枚目の日付情報を再検索中...")
+                                date_candidates_sheet3_retry = []
+                                
+                                for col in range(1, min(sheet3_data_only.max_column + 1, 100)):
+                                    date_val = sheet3_data_only.cell(row=1, column=col).value
+                                    if date_val is not None:
+                                        col_letter = col_num_to_letter(col)
+                                        date_candidates_sheet3_retry.append(f"{col_letter}{col}: '{date_val}' ({type(date_val).__name__})")
+                                        
+                                        try:
+                                            # 数値型の日付をチェック
+                                            if isinstance(date_val, (int, float)):
+                                                date_num = int(date_val)
+                                                if 1 <= date_num <= 31:
+                                                    dates_sheet3[date_num] = col
+                                                    st.write(f"  ✅ 3枚目(再取得): {date_num}日 → {col}列目({col_letter}列)")
+                                            # 文字列型の日付をチェック  
+                                            elif isinstance(date_val, str):
+                                                if date_val.strip().isdigit():
+                                                    date_num = int(date_val.strip())
+                                                    if 1 <= date_num <= 31:
+                                                        dates_sheet3[date_num] = col
+                                                        st.write(f"  ✅ 3枚目(再取得): {date_num}日 → {col}列目({col_letter}列)")
+                                        except Exception as e:
+                                            pass
+                                
+                                st.write(f"3枚目の再取得結果: {date_candidates_sheet3_retry[:20]}")
+                                st.write(f"3枚目で見つかった日付数(再取得後): {len(dates_sheet3)}")
                         
                         # 共通の日付を確認
                         common_dates = set(dates_sheet2.keys()) & set(dates_sheet3.keys())
