@@ -139,7 +139,7 @@ else:
                 drive_service = build('drive', 'v3', credentials=creds)
                 file_info = drive_service.files().get(
                     fileId=file_id, 
-                    fields='name,mimeType,modifiedTime,size'
+                    fields='name,mimeType,modifiedTime,size,owners,permissions'
                 ).execute()
                 
                 st.info(f"""
@@ -148,11 +148,67 @@ else:
                 **更新日時:** {file_info.get('modifiedTime', 'N/A')}  
                 **サイズ:** {file_info.get('size', 'N/A')} bytes
                 """)
+                
+                # サービスアカウント情報の表示
+                service_account_email = creds.service_account_email
+                st.success(f"✅ **アクセス成功！** サービスアカウント: `{service_account_email}`")
+                
             except Exception as e:
                 st.error(f"ファイル情報の取得に失敗しました: {e}")
-                st.error("ファイルIDが正しいか、またはファイルへのアクセス権限があるか確認してください。")
+                
+                # 詳細なトラブルシューティング情報
+                service_account_email = creds.service_account_email if creds else "取得失敗"
+                st.error(f"""
+                **トラブルシューティング:**
+                
+                🔍 **サービスアカウント:** `{service_account_email}`
+                
+                📋 **確認項目:**
+                1. ファイルIDが正しいか確認
+                2. Google Driveでファイルが存在するか確認
+                3. サービスアカウントにファイル共有されているか確認
+                
+                🛠️ **解決方法:**
+                1. Google Driveで対象ファイルを右クリック → 「共有」
+                2. サービスアカウントのメールアドレスを追加: `{service_account_email}`
+                3. 権限を「編集者」に設定
+                4. 「送信」をクリック
+                """)
+                
+                # ファイル共有の手順を詳しく表示
+                st.info("""
+                **📧 サービスアカウントへの共有手順:**
+                
+                1. Google Driveで該当のExcelファイルを右クリック
+                2. 「共有」を選択
+                3. 「ユーザーやグループを追加」をクリック
+                4. 上記のサービスアカウントメールアドレスを入力
+                5. 権限を「編集者」に設定
+                6. 「送信」をクリック
+                
+                ⚠️ **重要:** サービスアカウントは実際のGoogleアカウントではないため、メール通知は送信されません。
+                """)
 
-# --- メインのUI ---
+# --- 高度な処理オプション ---
+st.subheader("🔧 高度な処理オプション")
+
+enable_advanced_copy = st.checkbox(
+    "2枚目→3枚目への名前＆日付マッチング処理を有効にする",
+    value=True,
+    help="2枚目「まとめ」シートから3枚目「予定カレンダー」シートへの高度なコピー機能"
+)
+
+if enable_advanced_copy:
+    st.info("""
+    **📋 処理内容:**
+    - 2枚目のB列の名前と3枚目のN列の名前をマッチング
+    - 2枚目のD3,G3,J3の日付と3枚目の1行目の日付をマッチング  
+    - 2枚目の7行目以降奇数行のデータを3枚目の19行目以降に貼り付け
+    - 数式は値として貼り付け（関数なしのテキスト）
+    """)
+    
+    # --- メインのUI ---
+st.subheader("📁 ファイルアップロード")
 uploaded_file = st.file_uploader(
     "更新元となるファイル（CSVまたはExcel）を選択してください",
     type=['csv', 'xlsx', 'xls'],
@@ -234,6 +290,88 @@ if is_pressed:
                 for r_idx, row in enumerate(dataframe_to_rows(source_df, index=False, header=False), start=start_row):
                     for c_idx, value in enumerate(row, start=1):
                         sheet_to_update.cell(row=r_idx, column=c_idx, value=value)
+
+                # 7. 2枚目→3枚目への高度な貼り付け処理
+                if enable_advanced_copy:
+                    st.write("ステップ2.5/3: 2枚目から3枚目への名前＆日付マッチング処理中...")
+                    if len(workbook.worksheets) >= 3:
+                        sheet2 = workbook.worksheets[1]  # 2枚目「まとめ」
+                        sheet3 = workbook.worksheets[2]  # 3枚目「予定カレンダー」
+                        
+                        # 2枚目の日付情報を取得（D3, G3, J3）
+                        dates_sheet2 = {}
+                        date_positions = [(4, 3), (7, 3), (10, 3)]  # D3, G3, J3 (1-indexed)
+                        for col, row in date_positions:
+                            date_val = sheet2.cell(row=row, column=col).value
+                            if date_val:
+                                dates_sheet2[col] = int(date_val) if isinstance(date_val, (int, float)) else date_val
+                        
+                        # 3枚目の日付情報を取得（1行目のS, V, Y, AB等）
+                        dates_sheet3 = {}
+                        check_columns = [19, 22, 25, 28, 31, 34, 37, 40]  # S, V, Y, AB, AE, AH, AK, AN等
+                        for col in check_columns:
+                            if col <= sheet3.max_column:
+                                date_val = sheet3.cell(row=1, column=col).value
+                                if date_val:
+                                    try:
+                                        date_key = int(date_val) if isinstance(date_val, (int, float)) else int(str(date_val))
+                                        dates_sheet3[date_key] = col
+                                    except:
+                                        pass
+                        
+                        # 2枚目の名前リストを取得（B列、7行目以降の奇数行）
+                        names_sheet2 = {}
+                        for row in range(7, min(sheet2.max_row + 1, 50), 2):  # 7行目から奇数行のみ、最大50行まで
+                            name = sheet2.cell(row=row, column=2).value  # B列
+                            if name and str(name).strip():
+                                names_sheet2[str(name).strip()] = row
+                        
+                        # 3枚目の名前リストを取得（N列、19行目以降）
+                        names_sheet3 = {}
+                        for row in range(19, min(sheet3.max_row + 1, 100)):  # 19行目以降、最大100行まで
+                            name = sheet3.cell(row=row, column=14).value  # N列
+                            if name and str(name).strip():
+                                names_sheet3[str(name).strip()] = row
+                        
+                        # 名前＆日付マッチングでデータ貼り付け
+                        copy_count = 0
+                        match_log = []
+                        
+                        for name, sheet2_row in names_sheet2.items():
+                            if name in names_sheet3:
+                                sheet3_row = names_sheet3[name]
+                                match_log.append(f"名前マッチ: {name} (2枚目{sheet2_row}行 → 3枚目{sheet3_row}行)")
+                                
+                                # 各日付のデータをコピー
+                                for sheet2_col, date in dates_sheet2.items():
+                                    if date in dates_sheet3:
+                                        sheet3_col = dates_sheet3[date]
+                                        match_log.append(f"  日付マッチ: {date}日 (2枚目{sheet2_col}列 → 3枚目{sheet3_col}列)")
+                                        
+                                        # 2枚目のデータを取得（C列から開始、横に6列分）
+                                        for offset in range(6):  # C〜H列をコピー
+                                            source_col = 3 + offset  # C列から
+                                            target_col = sheet3_col + offset  # 対応する位置に
+                                            
+                                            if target_col <= sheet3.max_column + 10:  # 安全チェック
+                                                source_value = sheet2.cell(row=sheet2_row, column=source_col).value
+                                                if source_value is not None:
+                                                    # 数式ではなく値として貼り付け
+                                                    if isinstance(source_value, str) and source_value.startswith('='):
+                                                        sheet3.cell(row=sheet3_row, column=target_col).value = "#FORMULA#"
+                                                    else:
+                                                        sheet3.cell(row=sheet3_row, column=target_col).value = source_value
+                                                    copy_count += 1
+                        
+                        st.success(f"✅ {copy_count}個のセルを2枚目から3枚目にコピーしました")
+                        
+                        # マッチングログを表示
+                        if match_log:
+                            with st.expander("📊 マッチング詳細ログ"):
+                                for log in match_log[:20]:  # 最初の20件のみ表示
+                                    st.text(log)
+                    else:
+                        st.warning("⚠️ ワークブックにシートが3枚未満のため、シート間コピーをスキップしました")
 
                 # 7. 変更をメモリ上で保存（xlsmとして保存）
                 output_buffer = io.BytesIO()
