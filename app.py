@@ -71,13 +71,90 @@ if missing_keys:
     """)
     st.stop()
 
-# --- Google Drive ファイルID の表示 ---
+# --- Google Drive ファイルID の設定 ---
+st.subheader("📁 更新対象のGoogle DriveファイルID")
+
+# デフォルトファイルIDの取得
+default_file_id = ""
 try:
-    file_id = st.secrets["target_excel_file_id"]
-    st.info(f"**対象ファイルID:** `{file_id}`")
-except Exception as e:
-    st.error(f"ファイルIDの取得に失敗しました: {e}")
-    st.stop()
+    default_file_id = st.secrets.get("target_excel_file_id", "")
+except:
+    pass
+
+# ファイルIDの入力UI
+col1, col2 = st.columns([3, 1])
+with col1:
+    file_id = st.text_input(
+        "Google DriveファイルのIDまたはURLを入力してください",
+        value=default_file_id,
+        placeholder="例: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms",
+        help="DriveのURL: https://drive.google.com/file/d/【この部分がID】/view"
+    )
+
+with col2:
+    if st.button("🔗 URLから抽出", help="Drive URLからファイルIDを自動抽出"):
+        # URLからファイルIDを抽出する処理は後で実装
+        pass
+
+# URLからファイルIDを抽出する関数
+def extract_file_id_from_url(url_or_id):
+    """URLまたはファイルIDからファイルIDを抽出"""
+    if not url_or_id:
+        return ""
+    
+    # すでにファイルIDの形式の場合（英数字とハイフン、アンダースコア）
+    if len(url_or_id) > 10 and '/' not in url_or_id:
+        return url_or_id.strip()
+    
+    # URL形式の場合
+    import re
+    patterns = [
+        r'/file/d/([a-zA-Z0-9-_]+)',
+        r'id=([a-zA-Z0-9-_]+)',
+        r'/folders/([a-zA-Z0-9-_]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url_or_id)
+        if match:
+            return match.group(1)
+    
+    return url_or_id.strip()
+
+# ファイルIDの処理
+file_id = extract_file_id_from_url(file_id)
+
+if not file_id:
+    st.warning("**ファイルIDが入力されていません。** Google DriveのファイルIDまたはURLを入力してください。")
+    st.info("""
+    📝 **ファイルIDの取得方法:**
+    1. Google Driveで対象のExcelファイルを開く
+    2. URLをコピー: `https://drive.google.com/file/d/【この部分】/view`
+    3. 上記の【この部分】がファイルIDです
+    """)
+else:
+    st.success(f"**対象ファイルID:** `{file_id}`")
+    
+    # ファイル情報を表示する機能
+    if st.checkbox("📋 ファイル情報を確認"):
+        creds = get_google_creds()
+        if creds:
+            try:
+                drive_service = build('drive', 'v3', credentials=creds)
+                file_info = drive_service.files().get(
+                    fileId=file_id, 
+                    fields='name,mimeType,modifiedTime,size'
+                ).execute()
+                
+                st.info(f"""
+                **ファイル名:** {file_info.get('name', 'N/A')}  
+                **ファイル形式:** {file_info.get('mimeType', 'N/A')}  
+                **更新日時:** {file_info.get('modifiedTime', 'N/A')}  
+                **サイズ:** {file_info.get('size', 'N/A')} bytes
+                """)
+            except Exception as e:
+                st.error(f"ファイル情報の取得に失敗しました: {e}")
+                st.error("ファイルIDが正しいか、またはファイルへのアクセス権限があるか確認してください。")
 
 # --- メインのUI ---
 uploaded_file = st.file_uploader(
@@ -93,7 +170,7 @@ is_pressed = st.button(
     "Drive上のExcelを更新実行", 
     type="primary", 
     use_container_width=True, 
-    disabled=(uploaded_file is None)
+    disabled=(uploaded_file is None or not file_id)
 )
 
 st.markdown("---")
@@ -104,6 +181,10 @@ if is_pressed:
     # 処理開始前の最終チェック
     if uploaded_file is None:
         st.error("エラー: ファイルがアップロードされていません。")
+        st.stop()
+    
+    if not file_id:
+        st.error("エラー: Google DriveのファイルIDが入力されていません。")
         st.stop()
     
     start_time = time.time()
@@ -140,21 +221,7 @@ if is_pressed:
                     st.error(f"Driveからのファイルダウンロードに失敗しました。ファイルIDが正しいか確認してください: {e}")
                     st.stop()
                 
-                # 4. openpyxlでExcelワークブックとして読み込む
-                st.write("ステップ2/3: Excelデータをメモリ上で編集中...")
-                workbook = openpyxl.load_workbook(fh)
-                
-                # 5. 1枚目のシートを取得し、既存のデータをクリア
-                sheet_to_update = workbook.worksheets[0]
-                sheet_to_update.delete_rows(2, sheet_to_update.max_row + 1) # ヘッダーを残し、2行目以降を全削除
-
-                # 6. 新しいデータを書き込む
-                for row in dataframe_to_rows(source_df, index=False, header=False):
-                    sheet_to_update.append(row)
-
-                # 7. 変更をメモリ上で保存
-                output_buffer = io.BytesIO()
-                workbook.save(output_buffer)
+output_buffer)
                 output_buffer.seek(0)
                 
                 # 8. 再構築したファイルで、Drive上のファイルBを上書き更新
