@@ -1,4 +1,4 @@
-# app.py (エラーハンドリング改善版)
+# app.py (完全修正版)
 
 import streamlit as st
 import pandas as pd
@@ -10,6 +10,7 @@ from googleapiclient.http import MediaIoBaseUpload
 from google.oauth2.service_account import Credentials
 from datetime import datetime
 import time
+import re
 
 # --- ページ設定 ---
 st.set_page_config(
@@ -39,9 +40,6 @@ def check_secrets():
     if "gcp_service_account" not in st.secrets:
         missing_keys.append("gcp_service_account")
     
-    if "target_excel_file_id" not in st.secrets:
-        missing_keys.append("target_excel_file_id")
-    
     return missing_keys
 
 # --- Google API 認証 ---
@@ -56,6 +54,30 @@ def get_google_creds():
         st.error(f"Googleへの認証に失敗しました: {e}")
         return None
 
+# --- URLからファイルIDを抽出する関数 ---
+def extract_file_id_from_url(url_or_id):
+    """URLまたはファイルIDからファイルIDを抽出"""
+    if not url_or_id:
+        return ""
+    
+    # すでにファイルIDの形式の場合（英数字とハイフン、アンダースコア）
+    if len(url_or_id) > 10 and '/' not in url_or_id:
+        return url_or_id.strip()
+    
+    # URL形式の場合
+    patterns = [
+        r'/file/d/([a-zA-Z0-9-_]+)',
+        r'id=([a-zA-Z0-9-_]+)',
+        r'/folders/([a-zA-Z0-9-_]+)'
+    ]
+    
+    for pattern in patterns:
+        match = re.search(pattern, url_or_id)
+        if match:
+            return match.group(1)
+    
+    return url_or_id.strip()
+
 # --- 設定チェック ---
 missing_keys = check_secrets()
 if missing_keys:
@@ -65,7 +87,7 @@ if missing_keys:
     
     📝 **対応方法:**
     1. `.streamlit/secrets.toml` ファイルを作成してください
-    2. 必要な認証情報とファイルIDを追加してください
+    2. 必要な認証情報を追加してください
     
     詳細については、[Streamlit Secrets管理](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management)を参照してください。
     """)
@@ -93,33 +115,7 @@ with col1:
 
 with col2:
     if st.button("🔗 URLから抽出", help="Drive URLからファイルIDを自動抽出"):
-        # URLからファイルIDを抽出する処理は後で実装
         pass
-
-# URLからファイルIDを抽出する関数
-def extract_file_id_from_url(url_or_id):
-    """URLまたはファイルIDからファイルIDを抽出"""
-    if not url_or_id:
-        return ""
-    
-    # すでにファイルIDの形式の場合（英数字とハイフン、アンダースコア）
-    if len(url_or_id) > 10 and '/' not in url_or_id:
-        return url_or_id.strip()
-    
-    # URL形式の場合
-    import re
-    patterns = [
-        r'/file/d/([a-zA-Z0-9-_]+)',
-        r'id=([a-zA-Z0-9-_]+)',
-        r'/folders/([a-zA-Z0-9-_]+)'
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, url_or_id)
-        if match:
-            return match.group(1)
-    
-    return url_or_id.strip()
 
 # ファイルIDの処理
 file_id = extract_file_id_from_url(file_id)
@@ -221,12 +217,33 @@ if is_pressed:
                     st.error(f"Driveからのファイルダウンロードに失敗しました。ファイルIDが正しいか確認してください: {e}")
                     st.stop()
                 
-output_buffer)
+                # 4. openpyxlでExcelワークブックとして読み込み（マクロ対応）
+                st.write("ステップ2/3: Excelデータをメモリ上で編集中...")
+                # keep_vba=Trueでマクロを保持
+                workbook = openpyxl.load_workbook(fh, keep_vba=True)
+                
+                # 5. 1枚目のシートを取得し、既存のデータをクリア
+                sheet_to_update = workbook.worksheets[0]
+                
+                # ヘッダー行を保持するかチェック
+                if sheet_to_update.max_row > 1:
+                    sheet_to_update.delete_rows(2, sheet_to_update.max_row)
+
+                # 6. 新しいデータを書き込む（ヘッダーがある場合は2行目から開始）
+                start_row = 2 if sheet_to_update.max_row >= 1 else 1
+                for r_idx, row in enumerate(dataframe_to_rows(source_df, index=False, header=False), start=start_row):
+                    for c_idx, value in enumerate(row, start=1):
+                        sheet_to_update.cell(row=r_idx, column=c_idx, value=value)
+
+                # 7. 変更をメモリ上で保存（xlsmとして保存）
+                output_buffer = io.BytesIO()
+                workbook.save(output_buffer)
                 output_buffer.seek(0)
                 
                 # 8. 再構築したファイルで、Drive上のファイルBを上書き更新
                 st.write("ステップ3/3: Drive上のファイルを新しい内容で上書き中...")
-                media = MediaIoBaseUpload(output_buffer, mimetype='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')
+                # xlsmファイル用のMIMEタイプに変更
+                media = MediaIoBaseUpload(output_buffer, mimetype='application/vnd.ms-excel.sheet.macroEnabled.12')
                 drive_service.files().update(
                     fileId=file_id,
                     media_body=media
