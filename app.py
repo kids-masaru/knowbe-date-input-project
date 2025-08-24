@@ -298,26 +298,58 @@ if is_pressed:
                         sheet2 = workbook.worksheets[1]  # 2枚目「まとめ」
                         sheet3 = workbook.worksheets[2]  # 3枚目「予定カレンダー」
                         
-                        # 2枚目の日付情報を取得（D3, G3, J3）
+                        # 2枚目の日付情報を取得（D3, G3, J3など）
                         dates_sheet2 = {}
-                        date_positions = [(4, 3), (7, 3), (10, 3)]  # D3, G3, J3 (1-indexed)
-                        for col, row in date_positions:
-                            date_val = sheet2.cell(row=row, column=col).value
-                            if date_val:
-                                dates_sheet2[col] = int(date_val) if isinstance(date_val, (int, float)) else date_val
+                        st.write("🔍 2枚目の日付情報を検索中...")
                         
-                        # 3枚目の日付情報を取得（1行目のS, V, Y, AB等）
+                        # より広範囲で日付を検索（3行目のC列からCQ列まで）
+                        for col in range(3, 96):  # C列(3)からCQ列(95)まで
+                            date_val = sheet2.cell(row=3, column=col).value
+                            if date_val is not None:
+                                try:
+                                    if isinstance(date_val, (int, float)):
+                                        date_num = int(date_val)
+                                        if 1 <= date_num <= 31:  # 日付として有効な範囲
+                                            dates_sheet2[date_num] = col
+                                            st.write(f"  📅 2枚目: {date_num}日 → {col}列目")
+                                    elif isinstance(date_val, str) and date_val.isdigit():
+                                        date_num = int(date_val)
+                                        if 1 <= date_num <= 31:
+                                            dates_sheet2[date_num] = col
+                                            st.write(f"  📅 2枚目: {date_num}日 → {col}列目")
+                                except:
+                                    pass
+                        
+                        st.write(f"2枚目で見つかった日付数: {len(dates_sheet2)}")
+                        
+                        # 3枚目の日付情報を取得（1行目のより広範囲）
                         dates_sheet3 = {}
-                        check_columns = [19, 22, 25, 28, 31, 34, 37, 40]  # S, V, Y, AB, AE, AH, AK, AN等
-                        for col in check_columns:
-                            if col <= sheet3.max_column:
-                                date_val = sheet3.cell(row=1, column=col).value
-                                if date_val:
-                                    try:
-                                        date_key = int(date_val) if isinstance(date_val, (int, float)) else int(str(date_val))
-                                        dates_sheet3[date_key] = col
-                                    except:
-                                        pass
+                        st.write("🔍 3枚目の日付情報を検索中...")
+                        
+                        # 1行目のより広範囲で日付を検索
+                        for col in range(1, min(sheet3.max_column + 1, 200)):  # 1列目から200列目まで
+                            date_val = sheet3.cell(row=1, column=col).value
+                            if date_val is not None:
+                                try:
+                                    if isinstance(date_val, (int, float)):
+                                        date_num = int(date_val)
+                                        if 1 <= date_num <= 31:  # 日付として有効な範囲
+                                            dates_sheet3[date_num] = col
+                                            st.write(f"  📅 3枚目: {date_num}日 → {col}列目")
+                                    elif isinstance(date_val, str) and date_val.isdigit():
+                                        date_num = int(date_val)
+                                        if 1 <= date_num <= 31:
+                                            dates_sheet3[date_num] = col
+                                            st.write(f"  📅 3枚目: {date_num}日 → {col}列目")
+                                except:
+                                    pass
+                        
+                        st.write(f"3枚目で見つかった日付数: {len(dates_sheet3)}")
+                        
+                        # 共通の日付を確認
+                        common_dates = set(dates_sheet2.keys()) & set(dates_sheet3.keys())
+                        st.write(f"共通の日付: {sorted(common_dates)}")
+
                         
                         # 2枚目の名前リストを取得（B列、7行目以降の奇数行）
                         names_sheet2 = {}
@@ -337,33 +369,38 @@ if is_pressed:
                         copy_count = 0
                         match_log = []
                         
-                        for name, sheet2_row in names_sheet2.items():
-                            if name in names_sheet3:
-                                sheet3_row = names_sheet3[name]
-                                match_log.append(f"名前マッチ: {name} (2枚目{sheet2_row}行 → 3枚目{sheet3_row}行)")
-                                
-                                # 各日付のデータをコピー
-                                for sheet2_col, date in dates_sheet2.items():
-                                    if date in dates_sheet3:
+                        if not common_dates:
+                            st.warning("⚠️ 共通の日付が見つかりませんでした。日付の形式を確認してください。")
+                        else:
+                            for name, sheet2_row in names_sheet2.items():
+                                if name in names_sheet3:
+                                    sheet3_row = names_sheet3[name]
+                                    match_log.append(f"名前マッチ: {name} (2枚目{sheet2_row}行 → 3枚目{sheet3_row}行)")
+                                    
+                                    # 各共通日付のデータをコピー
+                                    for date in common_dates:
+                                        sheet2_col = dates_sheet2[date]
                                         sheet3_col = dates_sheet3[date]
                                         match_log.append(f"  日付マッチ: {date}日 (2枚目{sheet2_col}列 → 3枚目{sheet3_col}列)")
                                         
-                                        # 2枚目のデータを取得（C列から開始、横に6列分）
-                                        for offset in range(6):  # C〜H列をコピー
-                                            source_col = 3 + offset  # C列から
-                                            target_col = sheet3_col + offset  # 対応する位置に
+                                        # 2枚目の該当セルのデータを取得してコピー
+                                        source_value = sheet2.cell(row=sheet2_row, column=sheet2_col).value
+                                        if source_value is not None:
+                                            # 数式ではなく値として貼り付け
+                                            if isinstance(source_value, str) and source_value.startswith('='):
+                                                # 数式の場合は計算後の値を取得しようとする
+                                                display_value = str(source_value)  # とりあえず数式文字列
+                                                sheet3.cell(row=sheet3_row, column=sheet3_col).value = display_value
+                                            else:
+                                                sheet3.cell(row=sheet3_row, column=sheet3_col).value = source_value
                                             
-                                            if target_col <= sheet3.max_column + 10:  # 安全チェック
-                                                source_value = sheet2.cell(row=sheet2_row, column=source_col).value
-                                                if source_value is not None:
-                                                    # 数式ではなく値として貼り付け
-                                                    if isinstance(source_value, str) and source_value.startswith('='):
-                                                        sheet3.cell(row=sheet3_row, column=target_col).value = "#FORMULA#"
-                                                    else:
-                                                        sheet3.cell(row=sheet3_row, column=target_col).value = source_value
-                                                    copy_count += 1
+                                            copy_count += 1
+                                            match_log.append(f"    コピー: {source_value} → ({sheet3_row},{sheet3_col})")
+                                        else:
+                                            match_log.append(f"    スキップ: 空のセル ({sheet2_row},{sheet2_col})")
                         
                         st.success(f"✅ {copy_count}個のセルを2枚目から3枚目にコピーしました")
+
                         
                         # マッチングログを表示
                         if match_log:
