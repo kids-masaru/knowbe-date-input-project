@@ -1,4 +1,4 @@
-# app.py (完全修正版)
+# app.py (修正版 - 日付読み込み対応)
 
 import streamlit as st
 import pandas as pd
@@ -77,6 +77,16 @@ def extract_file_id_from_url(url_or_id):
             return match.group(1)
     
     return url_or_id.strip()
+
+# --- 列番号から文字に変換する関数 ---
+def col_num_to_letter(col_num):
+    """列番号を文字に変換 (1=A, 26=Z, 27=AA)"""
+    result = ""
+    while col_num > 0:
+        col_num -= 1
+        result = chr(65 + col_num % 26) + result
+        col_num //= 26
+    return result
 
 # --- 設定チェック ---
 missing_keys = check_secrets()
@@ -202,12 +212,12 @@ if enable_advanced_copy:
     st.info("""
     **📋 処理内容:**
     - 2枚目のB列の名前と3枚目のN列の名前をマッチング
-    - 2枚目のD3,G3,J3の日付と3枚目の1行目の日付をマッチング  
+    - 2枚目の1行目の日付と3枚目の1行目の日付をマッチング  
     - 2枚目の7行目以降奇数行のデータを3枚目の19行目以降に貼り付け
     - 数式は値として貼り付け（関数なしのテキスト）
     """)
     
-    # --- メインのUI ---
+# --- メインのUI ---
 st.subheader("📁 ファイルアップロード")
 uploaded_file = st.file_uploader(
     "更新元となるファイル（CSVまたはExcel）を選択してください",
@@ -291,66 +301,86 @@ if is_pressed:
                     for c_idx, value in enumerate(row, start=1):
                         sheet_to_update.cell(row=r_idx, column=c_idx, value=value)
 
-                # 7. 2枚目→3枚目への高度な貼り付け処理
+                # 7. 2枚目→3枚目への高度な貼り付け処理（修正版）
                 if enable_advanced_copy:
                     st.write("ステップ2.5/3: 2枚目から3枚目への名前＆日付マッチング処理中...")
                     if len(workbook.worksheets) >= 3:
                         sheet2 = workbook.worksheets[1]  # 2枚目「まとめ」
                         sheet3 = workbook.worksheets[2]  # 3枚目「予定カレンダー」
                         
-                        # 2枚目の日付情報を取得（D3, G3, J3, M3, P3... CP3まで3列おき）
+                        # 2枚目の日付情報を取得（1行目、D列から3列おき）
                         dates_sheet2 = {}
-                        st.write("🔍 2枚目の日付情報を検索中...")
+                        st.write("🔍 2枚目の日付情報を検索中（1行目）...")
                         
-                        # D3から始まって3列おきに検索（D=4, G=7, J=10, M=13, P=16...）
-                        for col in range(4, 95, 3):  # 4列目(D)から3列おきに、CP列(94)まで
-                            date_val = sheet2.cell(row=3, column=col).value
+                        # D1から始まって3列おきに検索（D=4, G=7, J=10, M=13...）
+                        for col in range(4, 95, 3):  # 4列目(D)から3列おきに
+                            date_val = sheet2.cell(row=1, column=col).value
                             if date_val is not None:
                                 try:
+                                    # 数値型の日付をチェック
                                     if isinstance(date_val, (int, float)):
-                                        date_num = int(date_val)
-                                        if 1 <= date_num <= 31:  # 日付として有効な範囲
-                                            dates_sheet2[date_num] = col
-                                            st.write(f"  📅 2枚目: {date_num}日 → {col}列目({chr(64+col)}列) データは{col-1}列目から")
-                                    elif isinstance(date_val, str) and date_val.isdigit():
                                         date_num = int(date_val)
                                         if 1 <= date_num <= 31:
                                             dates_sheet2[date_num] = col
-                                            st.write(f"  📅 2枚目: {date_num}日 → {col}列目({chr(64+col)}列) データは{col-1}列目から")
+                                            col_letter = col_num_to_letter(col)
+                                            st.write(f"  📅 2枚目: {date_num}日 → {col}列目({col_letter}列)")
+                                    # 文字列型の日付をチェック
+                                    elif isinstance(date_val, str):
+                                        if date_val.isdigit():
+                                            date_num = int(date_val)
+                                            if 1 <= date_num <= 31:
+                                                dates_sheet2[date_num] = col
+                                                col_letter = col_num_to_letter(col)
+                                                st.write(f"  📅 2枚目: {date_num}日 → {col}列目({col_letter}列)")
+                                        else:
+                                            # "1水" のような形式をチェック
+                                            import re
+                                            match = re.match(r'^(\d{1,2})', date_val)
+                                            if match:
+                                                date_num = int(match.group(1))
+                                                if 1 <= date_num <= 31:
+                                                    dates_sheet2[date_num] = col
+                                                    col_letter = col_num_to_letter(col)
+                                                    st.write(f"  📅 2枚目: {date_num}日 ('{date_val}') → {col}列目({col_letter}列)")
                                 except:
                                     pass
                         
                         st.write(f"2枚目で見つかった日付数: {len(dates_sheet2)}")
                         
-                        # 3枚目の日付情報を取得（S1, V1, Y1, AB1... EF1まで3列おき）
+                        # 3枚目の日付情報を取得（1行目、R列から3列おき）
                         dates_sheet3 = {}
-                        st.write("🔍 3枚目の日付情報を検索中...")
+                        st.write("🔍 3枚目の日付情報を検索中（1行目）...")
                         
-                        # S1から始まって3列おきに検索（S=19, V=22, Y=25, AB=28...）
-                        for col in range(19, 136, 3):  # 19列目(S)から3列おきに、EF列(136)まで
+                        # R1から始まって3列おきに検索（R=18, U=21, X=24, AA=27...）
+                        for col in range(18, 136, 3):  # 18列目(R)から3列おきに
                             date_val = sheet3.cell(row=1, column=col).value
                             if date_val is not None:
                                 try:
+                                    # 数値型の日付をチェック
                                     if isinstance(date_val, (int, float)):
-                                        date_num = int(date_val)
-                                        if 1 <= date_num <= 31:  # 日付として有効な範囲
-                                            dates_sheet3[date_num] = col
-                                            col_name = ""
-                                            if col <= 26:
-                                                col_name = chr(64+col)
-                                            else:
-                                                col_name = chr(64+(col-1)//26) + chr(64+((col-1)%26)+1)
-                                            st.write(f"  📅 3枚目: {date_num}日 → {col}列目({col_name}列) データは{col-2}列目から")
-                                    elif isinstance(date_val, str) and date_val.isdigit():
                                         date_num = int(date_val)
                                         if 1 <= date_num <= 31:
                                             dates_sheet3[date_num] = col
-                                            col_name = ""
-                                            if col <= 26:
-                                                col_name = chr(64+col)
-                                            else:
-                                                col_name = chr(64+(col-1)//26) + chr(64+((col-1)%26)+1)
-                                            st.write(f"  📅 3枚目: {date_num}日 → {col}列目({col_name}列) データは{col-2}列目から")
+                                            col_letter = col_num_to_letter(col)
+                                            st.write(f"  📅 3枚目: {date_num}日 → {col}列目({col_letter}列)")
+                                    # 文字列型の日付をチェック
+                                    elif isinstance(date_val, str):
+                                        if date_val.isdigit():
+                                            date_num = int(date_val)
+                                            if 1 <= date_num <= 31:
+                                                dates_sheet3[date_num] = col
+                                                col_letter = col_num_to_letter(col)
+                                                st.write(f"  📅 3枚目: {date_num}日 → {col}列目({col_letter}列)")
+                                        else:
+                                            # "1水" のような形式をチェック
+                                            import re
+                                            match = re.match(r'^(\d{1,2})', date_val)
+                                            if match:
+                                                date_num = int(match.group(1))
+                                                if 1 <= date_num <= 31:
+                                                    dates_sheet3[date_num] = col
+                                                    col_letter = col_num_to_letter(col)
+                                                    st.write(f"  📅 3枚目: {date_num}日 ('{date_val}') → {col}列目({col_letter}列)")
                                 except:
                                     pass
                         
@@ -360,8 +390,6 @@ if is_pressed:
                         common_dates = set(dates_sheet2.keys()) & set(dates_sheet3.keys())
                         st.write(f"共通の日付: {sorted(common_dates)}")
 
-
-                        
                         # 2枚目の名前リストを取得（B列、7行目以降の奇数行）
                         names_sheet2 = {}
                         for row in range(7, min(sheet2.max_row + 1, 50), 2):  # 7行目から奇数行のみ、最大50行まで
@@ -376,12 +404,19 @@ if is_pressed:
                             if name and str(name).strip():
                                 names_sheet3[str(name).strip()] = row
                         
+                        st.write(f"2枚目の名前数: {len(names_sheet2)}")
+                        st.write(f"3枚目の名前数: {len(names_sheet3)}")
+                        
                         # 名前＆日付マッチングでデータ貼り付け
                         copy_count = 0
                         match_log = []
                         
                         if not common_dates:
-                            st.warning("⚠️ 共通の日付が見つかりませんでした。日付の形式を確認してください。")
+                            st.warning("⚠️ 共通の日付が見つかりませんでした。")
+                            # デバッグ用に最初の数個の日付を表示
+                            st.write("デバッグ情報:")
+                            st.write(f"2枚目の日付: {list(dates_sheet2.keys())[:10]}")
+                            st.write(f"3枚目の日付: {list(dates_sheet3.keys())[:10]}")
                         else:
                             for name, sheet2_row in names_sheet2.items():
                                 if name in names_sheet3:
@@ -394,10 +429,12 @@ if is_pressed:
                                         date_col_sheet3 = dates_sheet3[date]  # 日付の列
                                         
                                         # 実際のデータの列を計算
-                                        data_col_sheet2 = date_col_sheet2 - 1  # 日付の1つ前の列
-                                        data_col_sheet3 = date_col_sheet3 - 2  # 日付の2つ前の列
+                                        # 2枚目：日付の1つ前の列（C列系）からデータを取得
+                                        data_col_sheet2 = date_col_sheet2 - 1
+                                        # 3枚目：日付の2つ前の列（P列系）にデータを貼り付け
+                                        data_col_sheet3 = date_col_sheet3 - 2
                                         
-                                        match_log.append(f"  日付マッチ: {date}日 (2枚目{date_col_sheet2}列の日付→{data_col_sheet2}列からコピー, 3枚目{date_col_sheet3}列の日付→{data_col_sheet3}列に貼り付け)")
+                                        match_log.append(f"  日付マッチ: {date}日 (2枚目{col_num_to_letter(data_col_sheet2)}列 → 3枚目{col_num_to_letter(data_col_sheet3)}列)")
                                         
                                         # 2枚目の該当セルのデータを取得してコピー
                                         source_value = sheet2.cell(row=sheet2_row, column=data_col_sheet2).value
@@ -405,34 +442,33 @@ if is_pressed:
                                         if source_value is not None:
                                             # 数式ではなく値として貼り付け
                                             if isinstance(source_value, str) and source_value.startswith('='):
-                                                # 数式の場合は計算後の表示値を取得しようとする（簡易版）
-                                                display_value = "[計算式結果]"  # 実際の値を取得するのは複雑なので、プレースホルダー
+                                                # 数式の場合は表示値を取得（簡易版）
+                                                display_value = "[計算式結果]"
                                                 sheet3.cell(row=sheet3_row, column=data_col_sheet3).value = display_value
                                             else:
                                                 sheet3.cell(row=sheet3_row, column=data_col_sheet3).value = source_value
                                             
                                             copy_count += 1
-                                            match_log.append(f"    ✅コピー: '{source_value}' → 3枚目({sheet3_row},{data_col_sheet3})")
+                                            match_log.append(f"    ✅コピー: '{source_value}' → 3枚目({sheet3_row},{col_num_to_letter(data_col_sheet3)})")
                                         else:
-                                            match_log.append(f"    ⚠️スキップ: 空のセル 2枚目({sheet2_row},{data_col_sheet2})")
+                                            match_log.append(f"    ⚠️スキップ: 空のセル 2枚目({sheet2_row},{col_num_to_letter(data_col_sheet2)})")
                         
                         st.success(f"✅ {copy_count}個のセルを2枚目から3枚目にコピーしました")
 
-                        
                         # マッチングログを表示
                         if match_log:
                             with st.expander("📊 マッチング詳細ログ"):
-                                for log in match_log[:20]:  # 最初の20件のみ表示
+                                for log in match_log[:30]:  # 最初の30件のみ表示
                                     st.text(log)
                     else:
                         st.warning("⚠️ ワークブックにシートが3枚未満のため、シート間コピーをスキップしました")
 
-                # 7. 変更をメモリ上で保存（xlsmとして保存）
+                # 8. 変更をメモリ上で保存（xlsmとして保存）
                 output_buffer = io.BytesIO()
                 workbook.save(output_buffer)
                 output_buffer.seek(0)
                 
-                # 8. 再構築したファイルで、Drive上のファイルBを上書き更新
+                # 9. 再構築したファイルで、Drive上のファイルBを上書き更新
                 st.write("ステップ3/3: Drive上のファイルを新しい内容で上書き中...")
                 # xlsmファイル用のMIMEタイプに変更
                 media = MediaIoBaseUpload(output_buffer, mimetype='application/vnd.ms-excel.sheet.macroEnabled.12')
@@ -449,3 +485,5 @@ if is_pressed:
 
         except Exception as e:
             result_placeholder.error(f"**エラーが発生しました:** {e}")
+            import traceback
+            st.text(traceback.format_exc())
