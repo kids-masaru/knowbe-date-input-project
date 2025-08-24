@@ -301,111 +301,183 @@ if is_pressed:
                     for c_idx, value in enumerate(row, start=1):
                         sheet_to_update.cell(row=r_idx, column=c_idx, value=value)
 
-                # 7. 2枚目→3枚目への高度な貼り付け処理（修正版）
+                # 7. 2枚目→3枚目への高度な貼り付け処理（デバッグ強化版）
                 if enable_advanced_copy:
                     st.write("ステップ2.5/3: 2枚目から3枚目への名前＆日付マッチング処理中...")
                     if len(workbook.worksheets) >= 3:
                         sheet2 = workbook.worksheets[1]  # 2枚目「まとめ」
                         sheet3 = workbook.worksheets[2]  # 3枚目「予定カレンダー」
                         
-                        # 2枚目の日付情報を取得（1行目、D列から3列おき）
+                        # === デバッグ情報: シートの基本情報 ===
+                        st.write(f"📊 シート情報:")
+                        st.write(f"  2枚目シート名: '{sheet2.title}', 最大行: {sheet2.max_row}, 最大列: {sheet2.max_column}")
+                        st.write(f"  3枚目シート名: '{sheet3.title}', 最大行: {sheet3.max_row}, 最大列: {sheet3.max_column}")
+                        
+                        # === 2枚目の1行目を詳細確認 ===
+                        st.write("🔍 2枚目の1行目の内容を詳細確認中...")
+                        sheet2_row1_debug = []
+                        for col in range(1, min(sheet2.max_column + 1, 30)):  # 最初の30列まで確認
+                            cell_val = sheet2.cell(row=1, column=col).value
+                            col_letter = col_num_to_letter(col)
+                            sheet2_row1_debug.append(f"{col_letter}{col}: '{cell_val}' ({type(cell_val).__name__})")
+                        
+                        st.write("2枚目1行目の内容:")
+                        for debug_info in sheet2_row1_debug:
+                            st.write(f"  {debug_info}")
+                        
+                        # === 3枚目の1行目を詳細確認 ===
+                        st.write("🔍 3枚目の1行目の内容を詳細確認中...")
+                        sheet3_row1_debug = []
+                        for col in range(15, min(sheet3.max_column + 1, 45)):  # R列(18)付近から確認
+                            cell_val = sheet3.cell(row=1, column=col).value
+                            col_letter = col_num_to_letter(col)
+                            sheet3_row1_debug.append(f"{col_letter}{col}: '{cell_val}' ({type(cell_val).__name__})")
+                        
+                        st.write("3枚目1行目の内容（R列付近）:")
+                        for debug_info in sheet3_row1_debug:
+                            st.write(f"  {debug_info}")
+                        
+                        # === 2枚目の日付情報を取得（全列を詳細チェック）===
                         dates_sheet2 = {}
                         st.write("🔍 2枚目の日付情報を検索中（1行目）...")
                         
-                        # D1から始まって3列おきに検索（D=4, G=7, J=10, M=13...）
-                        for col in range(4, 95, 3):  # 4列目(D)から3列おきに
+                        # 全ての列を確認して日付らしき値を探す
+                        date_candidates_sheet2 = []
+                        for col in range(1, min(sheet2.max_column + 1, 100)):
                             date_val = sheet2.cell(row=1, column=col).value
                             if date_val is not None:
+                                col_letter = col_num_to_letter(col)
+                                date_candidates_sheet2.append(f"{col_letter}{col}: '{date_val}' ({type(date_val).__name__})")
+                                
                                 try:
                                     # 数値型の日付をチェック
                                     if isinstance(date_val, (int, float)):
                                         date_num = int(date_val)
                                         if 1 <= date_num <= 31:
                                             dates_sheet2[date_num] = col
-                                            col_letter = col_num_to_letter(col)
-                                            st.write(f"  📅 2枚目: {date_num}日 → {col}列目({col_letter}列)")
+                                            st.write(f"  ✅ 2枚目: {date_num}日 → {col}列目({col_letter}列)")
                                     # 文字列型の日付をチェック
                                     elif isinstance(date_val, str):
-                                        if date_val.isdigit():
-                                            date_num = int(date_val)
+                                        if date_val.strip().isdigit():
+                                            date_num = int(date_val.strip())
                                             if 1 <= date_num <= 31:
                                                 dates_sheet2[date_num] = col
-                                                col_letter = col_num_to_letter(col)
-                                                st.write(f"  📅 2枚目: {date_num}日 → {col}列目({col_letter}列)")
+                                                st.write(f"  ✅ 2枚目: {date_num}日 → {col}列目({col_letter}列)")
                                         else:
                                             # "1水" のような形式をチェック
                                             import re
-                                            match = re.match(r'^(\d{1,2})', date_val)
+                                            match = re.match(r'^(\d{1,2})', str(date_val).strip())
                                             if match:
                                                 date_num = int(match.group(1))
                                                 if 1 <= date_num <= 31:
                                                     dates_sheet2[date_num] = col
-                                                    col_letter = col_num_to_letter(col)
-                                                    st.write(f"  📅 2枚目: {date_num}日 ('{date_val}') → {col}列目({col_letter}列)")
-                                except:
+                                                    st.write(f"  ✅ 2枚目: {date_num}日 ('{date_val}') → {col}列目({col_letter}列)")
+                                except Exception as e:
                                     pass
                         
+                        st.write(f"2枚目の全セル値（値があるもの）: {date_candidates_sheet2[:20]}")  # 最初の20個
                         st.write(f"2枚目で見つかった日付数: {len(dates_sheet2)}")
                         
-                        # 3枚目の日付情報を取得（1行目、R列から3列おき）
+                        # === 3枚目の日付情報を取得（全列を詳細チェック）===
                         dates_sheet3 = {}
                         st.write("🔍 3枚目の日付情報を検索中（1行目）...")
                         
-                        # R1から始まって3列おきに検索（R=18, U=21, X=24, AA=27...）
-                        for col in range(18, 136, 3):  # 18列目(R)から3列おきに
+                        # 全ての列を確認して日付らしき値を探す
+                        date_candidates_sheet3 = []
+                        for col in range(1, min(sheet3.max_column + 1, 100)):
                             date_val = sheet3.cell(row=1, column=col).value
                             if date_val is not None:
+                                col_letter = col_num_to_letter(col)
+                                date_candidates_sheet3.append(f"{col_letter}{col}: '{date_val}' ({type(date_val).__name__})")
+                                
                                 try:
                                     # 数値型の日付をチェック
                                     if isinstance(date_val, (int, float)):
                                         date_num = int(date_val)
                                         if 1 <= date_num <= 31:
                                             dates_sheet3[date_num] = col
-                                            col_letter = col_num_to_letter(col)
-                                            st.write(f"  📅 3枚目: {date_num}日 → {col}列目({col_letter}列)")
+                                            st.write(f"  ✅ 3枚目: {date_num}日 → {col}列目({col_letter}列)")
                                     # 文字列型の日付をチェック
                                     elif isinstance(date_val, str):
-                                        if date_val.isdigit():
-                                            date_num = int(date_val)
+                                        if date_val.strip().isdigit():
+                                            date_num = int(date_val.strip())
                                             if 1 <= date_num <= 31:
                                                 dates_sheet3[date_num] = col
-                                                col_letter = col_num_to_letter(col)
-                                                st.write(f"  📅 3枚目: {date_num}日 → {col}列目({col_letter}列)")
+                                                st.write(f"  ✅ 3枚目: {date_num}日 → {col}列目({col_letter}列)")
                                         else:
                                             # "1水" のような形式をチェック
                                             import re
-                                            match = re.match(r'^(\d{1,2})', date_val)
+                                            match = re.match(r'^(\d{1,2})', str(date_val).strip())
                                             if match:
                                                 date_num = int(match.group(1))
                                                 if 1 <= date_num <= 31:
                                                     dates_sheet3[date_num] = col
-                                                    col_letter = col_num_to_letter(col)
-                                                    st.write(f"  📅 3枚目: {date_num}日 ('{date_val}') → {col}列目({col_letter}列)")
-                                except:
+                                                    st.write(f"  ✅ 3枚目: {date_num}日 ('{date_val}') → {col}列目({col_letter}列)")
+                                except Exception as e:
                                     pass
                         
+                        st.write(f"3枚目の全セル値（値があるもの）: {date_candidates_sheet3[:20]}")  # 最初の20個
                         st.write(f"3枚目で見つかった日付数: {len(dates_sheet3)}")
                         
                         # 共通の日付を確認
                         common_dates = set(dates_sheet2.keys()) & set(dates_sheet3.keys())
                         st.write(f"共通の日付: {sorted(common_dates)}")
+                        
+                        # === 名前の確認も詳細化 ===
+                        st.write("🔍 名前情報を詳細確認中...")
+                        st.write("2枚目のB列（名前列）の内容:")
+                        names_debug_sheet2 = []
+                        for row in range(5, min(sheet2.max_row + 1, 20)):  # 5行目から確認
+                            name_val = sheet2.cell(row=row, column=2).value  # B列
+                            names_debug_sheet2.append(f"  B{row}: '{name_val}' ({type(name_val).__name__})")
+                        for debug_info in names_debug_sheet2:
+                            st.write(debug_info)
+                        
+                        st.write("3枚目のN列（名前列）の内容:")
+                        names_debug_sheet3 = []
+                        for row in range(17, min(sheet3.max_row + 1, 25)):  # 17行目から確認
+                            name_val = sheet3.cell(row=row, column=14).value  # N列
+                            names_debug_sheet3.append(f"  N{row}: '{name_val}' ({type(name_val).__name__})")
+                        for debug_info in names_debug_sheet3:
+                            st.write(debug_info)
 
+                        # === 名前のマッチング処理（デバッグ強化版）===
+                        st.write("🔍 名前のマッチング処理中...")
+                        
                         # 2枚目の名前リストを取得（B列、7行目以降の奇数行）
                         names_sheet2 = {}
+                        st.write("2枚目の名前を収集中（B列、7行目以降奇数行）:")
                         for row in range(7, min(sheet2.max_row + 1, 50), 2):  # 7行目から奇数行のみ、最大50行まで
                             name = sheet2.cell(row=row, column=2).value  # B列
                             if name and str(name).strip():
-                                names_sheet2[str(name).strip()] = row
+                                clean_name = str(name).strip()
+                                names_sheet2[clean_name] = row
+                                st.write(f"  ✅ B{row}: '{clean_name}'")
+                            else:
+                                st.write(f"  ⚠️ B{row}: 空または無効 ('{name}')")
                         
                         # 3枚目の名前リストを取得（N列、19行目以降）
                         names_sheet3 = {}
+                        st.write("3枚目の名前を収集中（N列、19行目以降）:")
                         for row in range(19, min(sheet3.max_row + 1, 100)):  # 19行目以降、最大100行まで
                             name = sheet3.cell(row=row, column=14).value  # N列
                             if name and str(name).strip():
-                                names_sheet3[str(name).strip()] = row
+                                clean_name = str(name).strip()
+                                names_sheet3[clean_name] = row
+                                st.write(f"  ✅ N{row}: '{clean_name}'")
+                            else:
+                                st.write(f"  ⚠️ N{row}: 空または無効 ('{name}')")
                         
-                        st.write(f"2枚目の名前数: {len(names_sheet2)}")
-                        st.write(f"3枚目の名前数: {len(names_sheet3)}")
+                        st.write(f"📊 収集結果:")
+                        st.write(f"  2枚目の名前数: {len(names_sheet2)} 個")
+                        st.write(f"  3枚目の名前数: {len(names_sheet3)} 個")
+                        st.write(f"  2枚目の名前一覧: {list(names_sheet2.keys())}")
+                        st.write(f"  3枚目の名前一覧: {list(names_sheet3.keys())}")
+                        
+                        # 名前のマッチング確認
+                        matched_names = set(names_sheet2.keys()) & set(names_sheet3.keys())
+                        st.write(f"  名前マッチ数: {len(matched_names)} 個")
+                        st.write(f"  マッチした名前: {list(matched_names)}")
                         
                         # 名前＆日付マッチングでデータ貼り付け
                         copy_count = 0
@@ -413,10 +485,11 @@ if is_pressed:
                         
                         if not common_dates:
                             st.warning("⚠️ 共通の日付が見つかりませんでした。")
-                            # デバッグ用に最初の数個の日付を表示
-                            st.write("デバッグ情報:")
-                            st.write(f"2枚目の日付: {list(dates_sheet2.keys())[:10]}")
-                            st.write(f"3枚目の日付: {list(dates_sheet3.keys())[:10]}")
+                            st.write("📊 詳細なデバッグ情報:")
+                            st.write(f"  2枚目の日付辞書: {dict(list(dates_sheet2.items())[:5])}")  # 最初の5個
+                            st.write(f"  3枚目の日付辞書: {dict(list(dates_sheet3.items())[:5])}")  # 最初の5個
+                        elif not matched_names:
+                            st.warning("⚠️ マッチする名前が見つかりませんでした。")
                         else:
                             for name, sheet2_row in names_sheet2.items():
                                 if name in names_sheet3:
