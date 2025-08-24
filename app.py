@@ -1,4 +1,4 @@
-# app.py (シート保持・最終版)
+# app.py (エラーハンドリング改善版)
 
 import streamlit as st
 import pandas as pd
@@ -31,6 +31,19 @@ st.title("📎 Excel直接更新システム")
 st.markdown("更新元ファイル（CSV/Excel）をアップロードすると、Google Drive上の指定のExcelファイルの1枚目のシートを上書きします。")
 st.warning("**注意:** この操作はDrive上のファイルを直接変更します。2枚目以降のシートは保持されますが、念のためバックアップを取ることを推奨します。")
 
+# --- 設定の確認 ---
+def check_secrets():
+    """必要なsecrets設定が存在するかチェック"""
+    missing_keys = []
+    
+    if "gcp_service_account" not in st.secrets:
+        missing_keys.append("gcp_service_account")
+    
+    if "target_excel_file_id" not in st.secrets:
+        missing_keys.append("target_excel_file_id")
+    
+    return missing_keys
+
 # --- Google API 認証 ---
 def get_google_creds():
     try:
@@ -42,6 +55,29 @@ def get_google_creds():
     except Exception as e:
         st.error(f"Googleへの認証に失敗しました: {e}")
         return None
+
+# --- 設定チェック ---
+missing_keys = check_secrets()
+if missing_keys:
+    st.error(f"""
+    **設定エラー:** 以下の設定が不足しています：
+    - {', '.join(missing_keys)}
+    
+    📝 **対応方法:**
+    1. `.streamlit/secrets.toml` ファイルを作成してください
+    2. 必要な認証情報とファイルIDを追加してください
+    
+    詳細については、[Streamlit Secrets管理](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management)を参照してください。
+    """)
+    st.stop()
+
+# --- Google Drive ファイルID の表示 ---
+try:
+    file_id = st.secrets["target_excel_file_id"]
+    st.info(f"**対象ファイルID:** `{file_id}`")
+except Exception as e:
+    st.error(f"ファイルIDの取得に失敗しました: {e}")
+    st.stop()
 
 # --- メインのUI ---
 uploaded_file = st.file_uploader(
@@ -68,7 +104,6 @@ if is_pressed:
             with st.spinner('処理を実行中... しばらくお待ちください。'):
                 # 1. Drive APIサービスを構築
                 drive_service = build('drive', 'v3', credentials=creds)
-                file_id = st.secrets["target_excel_file_id"]
 
                 # 2. アップロードされたファイル（A）からデータをDataFrameとして読み込む
                 if uploaded_file.name.endswith('.csv'):
@@ -78,9 +113,13 @@ if is_pressed:
 
                 # 3. Drive上のExcelファイル（B）をダウンロード
                 st.write("ステップ1/3: Drive上の既存ファイルをダウンロード中...")
-                request = drive_service.files().get_media(fileId=file_id)
-                file_content_bytes = request.execute()
-                fh = io.BytesIO(file_content_bytes)
+                try:
+                    request = drive_service.files().get_media(fileId=file_id)
+                    file_content_bytes = request.execute()
+                    fh = io.BytesIO(file_content_bytes)
+                except Exception as e:
+                    st.error(f"Driveからのファイルダウンロードに失敗しました。ファイルIDが正しいか確認してください: {e}")
+                    st.stop()
                 
                 # 4. openpyxlでExcelワークブックとして読み込む
                 st.write("ステップ2/3: Excelデータをメモリ上で編集中...")
