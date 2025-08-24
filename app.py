@@ -89,13 +89,23 @@ uploaded_file = st.file_uploader(
 if uploaded_file:
     st.info(f"**選択中のファイル:** {uploaded_file.name}")
 
-is_pressed = st.button("Drive上のExcelを更新実行", type="primary", use_container_width=True, disabled=(not uploaded_file))
+is_pressed = st.button(
+    "Drive上のExcelを更新実行", 
+    type="primary", 
+    use_container_width=True, 
+    disabled=(uploaded_file is None)
+)
 
 st.markdown("---")
 result_placeholder = st.empty()
 
 # --- ボタンが押された後の処理ロジック ---
 if is_pressed:
+    # 処理開始前の最終チェック
+    if uploaded_file is None:
+        st.error("エラー: ファイルがアップロードされていません。")
+        st.stop()
+    
     start_time = time.time()
     creds = get_google_creds()
 
@@ -106,10 +116,19 @@ if is_pressed:
                 drive_service = build('drive', 'v3', credentials=creds)
 
                 # 2. アップロードされたファイル（A）からデータをDataFrameとして読み込む
-                if uploaded_file.name.endswith('.csv'):
+                if uploaded_file is None:
+                    st.error("ファイルがアップロードされていません。")
+                    st.stop()
+                
+                # ファイル形式をチェックして適切に読み込み
+                file_extension = uploaded_file.name.lower()
+                if file_extension.endswith('.csv'):
                     source_df = pd.read_csv(uploaded_file)
-                else:
+                elif file_extension.endswith(('.xlsx', '.xls')):
                     source_df = pd.read_excel(uploaded_file, sheet_name=0)
+                else:
+                    st.error(f"サポートされていないファイル形式です: {uploaded_file.name}")
+                    st.stop()
 
                 # 3. Drive上のExcelファイル（B）をダウンロード
                 st.write("ステップ1/3: Drive上の既存ファイルをダウンロード中...")
