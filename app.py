@@ -335,9 +335,9 @@ if is_pressed:
                     for c_idx, value in enumerate(row, start=1):
                         sheet_to_update.cell(row=r_idx, column=c_idx, value=value)
 
-                # 7. 2枚目→3枚目への固定範囲コピー処理
+                # 7. 2枚目→3枚目への名前マッチング＆固定範囲コピー処理
                 if enable_advanced_copy and target_col and target_row:
-                    st.write("ステップ2.5/3: 2枚目から3枚目への固定範囲コピー処理中...")
+                    st.write("ステップ2.5/3: 2枚目から3枚目への名前マッチング＆固定範囲コピー処理中...")
                     if len(workbook.worksheets) >= 3:
                         sheet2 = workbook.worksheets[1]  # 2枚目「まとめ」
                         sheet3 = workbook.worksheets[2]  # 3枚目「予定カレンダー」
@@ -347,29 +347,40 @@ if is_pressed:
                         st.write(f"  2枚目シート名: '{sheet2.title}'")
                         st.write(f"  3枚目シート名: '{sheet3.title}'")
                         
-                        # 2枚目の名前リストを取得（B列、7行目以降の奇数行）
+                        # 2枚目の名前リストを取得（B列、全ての行を確認）
                         names_sheet2 = {}
-                        st.write("🔍 2枚目の名前を収集中（B列、7行目以降奇数行）...")
-                        for row in range(7, min(sheet2.max_row + 1, 100), 2):  # 7行目から奇数行のみ
+                        st.write("🔍 2枚目の名前を収集中（B列、全行）...")
+                        for row in range(1, min(sheet2.max_row + 1, 200)):
                             name = sheet2.cell(row=row, column=2).value  # B列
                             if name and str(name).strip():
                                 clean_name = str(name).strip()
                                 names_sheet2[clean_name] = row
                                 st.write(f"  ✅ B{row}: '{clean_name}'")
                         
-                        # 3枚目の名前リストを取得（N列、19行目以降）
+                        # 3枚目の名前リストを取得（全列を確認して名前らしきものを探す）
                         names_sheet3 = {}
-                        st.write("🔍 3枚目の名前を収集中（N列、19行目以降）...")
-                        for row in range(19, min(sheet3.max_row + 1, 200)):  # 19行目以降
-                            name = sheet3.cell(row=row, column=14).value  # N列
-                            if name and str(name).strip():
-                                clean_name = str(name).strip()
-                                names_sheet3[clean_name] = row
-                                st.write(f"  ✅ N{row}: '{clean_name}'")
+                        st.write("🔍 3枚目の名前を収集中（全列、全行）...")
+                        
+                        # 複数の列で名前を探す（N列を重点的に、その他の列も確認）
+                        search_columns = [14]  # N列(14)をメインに検索
+                        
+                        for col in search_columns:
+                            col_letter = col_num_to_letter(col)
+                            st.write(f"  {col_letter}列を検索中...")
+                            
+                            for row in range(1, min(sheet3.max_row + 1, 200)):
+                                name = sheet3.cell(row=row, column=col).value
+                                if name and str(name).strip():
+                                    clean_name = str(name).strip()
+                                    if clean_name not in names_sheet3:  # 重複を避ける
+                                        names_sheet3[clean_name] = row
+                                        st.write(f"    ✅ {col_letter}{row}: '{clean_name}'")
                         
                         st.write(f"📊 収集結果:")
                         st.write(f"  2枚目の名前数: {len(names_sheet2)} 個")
                         st.write(f"  3枚目の名前数: {len(names_sheet3)} 個")
+                        st.write(f"  2枚目の名前: {list(names_sheet2.keys())}")
+                        st.write(f"  3枚目の名前: {list(names_sheet3.keys())}")
                         
                         # 名前のマッチング確認
                         matched_names = set(names_sheet2.keys()) & set(names_sheet3.keys())
@@ -388,50 +399,50 @@ if is_pressed:
                         
                         if not matched_names:
                             st.warning("⚠️ マッチする名前が見つかりませんでした。")
+                            st.info("💡 名前の大文字小文字、スペース、全角半角などを確認してください")
                         else:
-                            st.write(f"🚀 コピー開始: C〜CQ列（{copy_end_col - copy_start_col + 1}列）")
-                            st.write(f"📍 貼り付け先: {col_num_to_letter(paste_start_col)}列から")
+                            st.write(f"🚀 コピー開始:")
+                            st.write(f"  📄 コピー元: 2枚目 C〜CQ列（{copy_end_col - copy_start_col + 1}列）")
+                            st.write(f"  📍 貼り付け先: 3枚目 {col_num_to_letter(paste_start_col)}列から開始")
                             
-                            for name, sheet2_row in names_sheet2.items():
-                                if name in names_sheet3:
-                                    sheet3_row = names_sheet3[name]
-                                    copy_log.append(f"名前マッチ: {name} (2枚目{sheet2_row}行 → 3枚目{sheet3_row}行)")
+                            for name in matched_names:
+                                sheet2_row = names_sheet2[name]
+                                sheet3_row = names_sheet3[name]
+                                copy_log.append(f"名前マッチ: '{name}' → 2枚目B{sheet2_row} から 3枚目{col_num_to_letter(paste_start_col)}{sheet3_row}へ")
+                                
+                                # C列からCQ列まで（固定範囲）をコピー
+                                for col_offset in range(copy_end_col - copy_start_col + 1):
+                                    source_col = copy_start_col + col_offset  # C列から始まる
+                                    target_col_for_paste = paste_start_col + col_offset  # 基準セルの2つ前から始まる
                                     
-                                    # C列からCQ列まで（固定範囲）をコピー
-                                    for col_offset in range(copy_end_col - copy_start_col + 1):
-                                        source_col = copy_start_col + col_offset  # C列から始まる
-                                        target_col_for_paste = paste_start_col + col_offset  # 基準セルの2つ前から始まる
+                                    # 2枚目の該当セルのデータを取得
+                                    source_value = sheet2.cell(row=sheet2_row, column=source_col).value
+                                    
+                                    # 3枚目の該当セルに貼り付け（値として）
+                                    if source_value is not None:
+                                        # 数式の場合は値として貼り付け（数式は除去）
+                                        if isinstance(source_value, str) and source_value.startswith('='):
+                                            sheet3.cell(row=sheet3_row, column=target_col_for_paste).value = "[数式]"
+                                        else:
+                                            sheet3.cell(row=sheet3_row, column=target_col_for_paste).value = source_value
                                         
-                                        # 2枚目の該当セルのデータを取得
-                                        source_value = sheet2.cell(row=sheet2_row, column=source_col).value
-                                        
-                                        # 3枚目の該当セルに貼り付け（値として）
-                                        if source_value is not None:
-                                            # 数式の場合は値として貼り付け
-                                            if isinstance(source_value, str) and source_value.startswith('='):
-                                                # 数式の計算結果を取得（簡易版）
-                                                try:
-                                                    # 可能であれば計算結果を取得、無理なら文字列として扱う
-                                                    sheet3.cell(row=sheet3_row, column=target_col_for_paste).value = "[数式結果]"
-                                                except:
-                                                    sheet3.cell(row=sheet3_row, column=target_col_for_paste).value = str(source_value)
-                                            else:
-                                                sheet3.cell(row=sheet3_row, column=target_col_for_paste).value = source_value
-                                            
-                                            copy_count += 1
-                                        
-                                        # 進捗ログ（最初の5個のみ詳細表示）
-                                        if col_offset < 5:
-                                            source_col_letter = col_num_to_letter(source_col)
-                                            target_col_letter = col_num_to_letter(target_col_for_paste)
-                                            copy_log.append(f"    {source_col_letter}{sheet2_row}→{target_col_letter}{sheet3_row}: '{source_value}'")
+                                        copy_count += 1
+                                    else:
+                                        # Noneの場合は空文字を設定
+                                        sheet3.cell(row=sheet3_row, column=target_col_for_paste).value = ""
+                                    
+                                    # 最初の5列のみ詳細ログ
+                                    if col_offset < 5:
+                                        source_col_letter = col_num_to_letter(source_col)
+                                        target_col_letter = col_num_to_letter(target_col_for_paste)
+                                        copy_log.append(f"    {source_col_letter}{sheet2_row}('{source_value}') → {target_col_letter}{sheet3_row}")
                             
                             st.success(f"✅ {copy_count}個のセルを2枚目から3枚目にコピーしました")
                             
                             # コピーログを表示
                             if copy_log:
                                 with st.expander("📊 コピー詳細ログ"):
-                                    for log in copy_log[:50]:  # 最初の50件のみ表示
+                                    for log in copy_log:
                                         st.text(log)
                     else:
                         st.warning("⚠️ ワークブックにシートが3枚未満のため、シート間コピーをスキップしました")
