@@ -1,6 +1,9 @@
 # app.py (修正版 - 固定範囲コピー対応)
 
 import streamlit as st
+
+# --- デバッグ: secrets.toml の中身を確認 ---
+st.write("DEBUG: st.secrets の中身", dict(st.secrets))
 import pandas as pd
 import io
 import openpyxl
@@ -471,3 +474,4 @@ if is_pressed:
             result_placeholder.error(f"**エラーが発生しました:** {e}")
             import traceback
             st.text(traceback.format_exc())
+
