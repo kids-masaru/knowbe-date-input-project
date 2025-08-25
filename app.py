@@ -1,41 +1,23 @@
 # app.py (修正版 - 固定範囲コピー対応)
 
-
-
 import streamlit as st
-
 import pandas as pd
-
 import io
-
 import openpyxl
-
 from openpyxl.utils.dataframe import dataframe_to_rows
-
 from googleapiclient.discovery import build
-
 from googleapiclient.http import MediaIoBaseUpload
-
 from google.oauth2.service_account import Credentials
-
 from datetime import datetime
-
 import time
-
 import re
-
-
 
 # --- ページ設定 ---
 
 st.set_page_config(
-
     page_title="Excel直接更新システム",
-
     page_icon="📎",
-
     layout="centered"
-
 )
 
 
@@ -918,3 +900,4 @@ if is_pressed:
             import traceback
 
             st.text(traceback.format_exc())
+
