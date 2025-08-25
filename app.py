@@ -1,7 +1,6 @@
 # app.py (修正版 - 固定範囲コピー対応)
 
 import streamlit as st
-st.write("DEBUG SECRETS", st.secrets)
 import pandas as pd
 import io
 import openpyxl
@@ -472,4 +471,3 @@ if is_pressed:
             result_placeholder.error(f"**エラーが発生しました:** {e}")
             import traceback
             st.text(traceback.format_exc())
-
