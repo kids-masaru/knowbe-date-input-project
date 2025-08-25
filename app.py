@@ -320,7 +320,7 @@ if is_pressed:
                 # 4. openpyxlでExcelワークブックとして読み込み（マクロ対応）
                 st.write("ステップ2/3: Excelデータをメモリ上で編集中...")
                 # keep_vba=Trueでマクロを保持
-                workbook = openpyxl.load_workbook(fh, keep_vba=True)
+                workbook = openpyxl.load_workbook(fh, keep_vba=True, data_only=True)
                 
                 # 5. 1枚目のシートを取得し、既存のデータをクリア
                 sheet_to_update = workbook.worksheets[0]
@@ -460,3 +460,4 @@ if is_pressed:
             result_placeholder.error(f"**エラーが発生しました:** {e}")
             import traceback
             st.text(traceback.format_exc())
+
