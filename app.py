@@ -1,4 +1,4 @@
-# app.py (修正版 - 日付読み込み対応)
+# app.py (段階的処理対応版)
 
 import streamlit as st
 import pandas as pd
@@ -25,24 +25,27 @@ st.markdown("""
 body { font-family: 'Noto Sans JP', sans-serif; }
 .main .block-container { padding-top: 2rem; }
 h1 { border-bottom: 2px solid #2563eb; padding-bottom: 0.5rem; }
+.step-info {
+    background-color: #f0f8ff;
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border-left: 4px solid #2563eb;
+    margin: 1rem 0;
+}
 </style>
 """, unsafe_allow_html=True)
 
-st.title("📎 Excel直接更新システム")
-st.markdown("更新元ファイル（CSV/Excel）をアップロードすると、Google Drive上の指定のExcelファイルの1枚目のシートを上書きします。")
-st.warning("**注意:** この操作はDrive上のファイルを直接変更します。2枚目以降のシートは保持されますが、念のためバックアップを取ることを推奨します。")
+st.title("📎 Excel直接更新システム（段階処理対応）")
+st.markdown("更新元ファイル（CSV/Excel）をアップロードすると、Google Drive上の指定のExcelファイルを段階的に更新します。")
 
-# --- 設定の確認 ---
+# --- ヘルパー関数 ---
 def check_secrets():
     """必要なsecrets設定が存在するかチェック"""
     missing_keys = []
-    
     if "gcp_service_account" not in st.secrets:
         missing_keys.append("gcp_service_account")
-    
     return missing_keys
 
-# --- Google API 認証 ---
 def get_google_creds():
     try:
         creds = Credentials.from_service_account_info(
@@ -54,17 +57,13 @@ def get_google_creds():
         st.error(f"Googleへの認証に失敗しました: {e}")
         return None
 
-# --- URLからファイルIDを抽出する関数 ---
 def extract_file_id_from_url(url_or_id):
     """URLまたはファイルIDからファイルIDを抽出"""
     if not url_or_id:
         return ""
-    
-    # すでにファイルIDの形式の場合（英数字とハイフン、アンダースコア）
     if len(url_or_id) > 10 and '/' not in url_or_id:
         return url_or_id.strip()
     
-    # URL形式の場合
     patterns = [
         r'/file/d/([a-zA-Z0-9-_]+)',
         r'id=([a-zA-Z0-9-_]+)',
@@ -78,7 +77,6 @@ def extract_file_id_from_url(url_or_id):
     
     return url_or_id.strip()
 
-# --- 列番号から文字に変換する関数 ---
 def col_num_to_letter(col_num):
     """列番号を文字に変換 (1=A, 26=Z, 27=AA)"""
     result = ""
@@ -94,26 +92,18 @@ if missing_keys:
     st.error(f"""
     **設定エラー:** 以下の設定が不足しています：
     - {', '.join(missing_keys)}
-    
-    📝 **対応方法:**
-    1. `.streamlit/secrets.toml` ファイルを作成してください
-    2. 必要な認証情報を追加してください
-    
-    詳細については、[Streamlit Secrets管理](https://docs.streamlit.io/deploy/streamlit-community-cloud/deploy-your-app/secrets-management)を参照してください。
     """)
     st.stop()
 
 # --- Google Drive ファイルID の設定 ---
 st.subheader("📁 更新対象のGoogle DriveファイルID")
 
-# デフォルトファイルIDの取得
 default_file_id = ""
 try:
     default_file_id = st.secrets.get("target_excel_file_id", "")
 except:
     pass
 
-# ファイルIDの入力UI
 col1, col2 = st.columns([3, 1])
 with col1:
     file_id = st.text_input(
@@ -123,15 +113,10 @@ with col1:
         help="DriveのURL: https://drive.google.com/file/d/【この部分がID】/view"
     )
 
-with col2:
-    if st.button("🔗 URLから抽出", help="Drive URLからファイルIDを自動抽出"):
-        pass
-
-# ファイルIDの処理
 file_id = extract_file_id_from_url(file_id)
 
 if not file_id:
-    st.warning("**ファイルIDが入力されていません。** Google DriveのファイルIDまたはURLを入力してください。")
+    st.warning("**ファイルIDが入力されていません。**")
     st.info("""
     📝 **ファイルIDの取得方法:**
     1. Google Driveで対象のExcelファイルを開く
@@ -140,84 +125,41 @@ if not file_id:
     """)
 else:
     st.success(f"**対象ファイルID:** `{file_id}`")
-    
-    # ファイル情報を表示する機能
-    if st.checkbox("📋 ファイル情報を確認"):
-        creds = get_google_creds()
-        if creds:
-            try:
-                drive_service = build('drive', 'v3', credentials=creds)
-                file_info = drive_service.files().get(
-                    fileId=file_id, 
-                    fields='name,mimeType,modifiedTime,size,owners,permissions'
-                ).execute()
-                
-                st.info(f"""
-                **ファイル名:** {file_info.get('name', 'N/A')}  
-                **ファイル形式:** {file_info.get('mimeType', 'N/A')}  
-                **更新日時:** {file_info.get('modifiedTime', 'N/A')}  
-                **サイズ:** {file_info.get('size', 'N/A')} bytes
-                """)
-                
-                # サービスアカウント情報の表示
-                service_account_email = creds.service_account_email
-                st.success(f"✅ **アクセス成功！** サービスアカウント: `{service_account_email}`")
-                
-            except Exception as e:
-                st.error(f"ファイル情報の取得に失敗しました: {e}")
-                
-                # 詳細なトラブルシューティング情報
-                service_account_email = creds.service_account_email if creds else "取得失敗"
-                st.error(f"""
-                **トラブルシューティング:**
-                
-                🔍 **サービスアカウント:** `{service_account_email}`
-                
-                📋 **確認項目:**
-                1. ファイルIDが正しいか確認
-                2. Google Driveでファイルが存在するか確認
-                3. サービスアカウントにファイル共有されているか確認
-                
-                🛠️ **解決方法:**
-                1. Google Driveで対象ファイルを右クリック → 「共有」
-                2. サービスアカウントのメールアドレスを追加: `{service_account_email}`
-                3. 権限を「編集者」に設定
-                4. 「送信」をクリック
-                """)
-                
-                # ファイル共有の手順を詳しく表示
-                st.info("""
-                **📧 サービスアカウントへの共有手順:**
-                
-                1. Google Driveで該当のExcelファイルを右クリック
-                2. 「共有」を選択
-                3. 「ユーザーやグループを追加」をクリック
-                4. 上記のサービスアカウントメールアドレスを入力
-                5. 権限を「編集者」に設定
-                6. 「送信」をクリック
-                
-                ⚠️ **重要:** サービスアカウントは実際のGoogleアカウントではないため、メール通知は送信されません。
-                """)
 
-# --- 高度な処理オプション ---
-st.subheader("🔧 高度な処理オプション")
+# --- 処理モード選択 ---
+st.subheader("🔄 処理モード選択")
 
-enable_advanced_copy = st.checkbox(
-    "2枚目→3枚目への名前＆日付マッチング処理を有効にする",
-    value=True,
-    help="2枚目「まとめ」シートから3枚目「予定カレンダー」シートへの高度なコピー機能"
+process_mode = st.radio(
+    "処理方法を選択してください：",
+    options=["一括処理（1枚目のみ更新）", "段階処理（2枚目→3枚目のコピーも実行）"],
+    help="段階処理は1枚目更新後、Excel関数の計算を待ってから2枚目→3枚目のコピーを実行します"
 )
 
-if enable_advanced_copy:
-    st.info("""
-    **📋 処理内容:**
-    - 2枚目のB列の名前と3枚目のN列の名前をマッチング
-    - 2枚目の1行目の日付と3枚目の1行目の日付をマッチング  
-    - 2枚目の7行目以降奇数行のデータを3枚目の19行目以降に貼り付け
-    - 数式は値として貼り付け（関数なしのテキスト）
+# 段階処理の設定
+if process_mode == "段階処理（2枚目→3枚目のコピーも実行）":
+    st.markdown('<div class="step-info">', unsafe_allow_html=True)
+    st.markdown("""
+    **📋 段階処理の流れ:**
+    1. **1枚目更新** - アップロードしたデータを1枚目に貼り付け
+    2. **中間保存** - Driveに保存してExcel関数を計算させる
+    3. **待機時間** - 関数計算の完了を待つ
+    4. **再取得** - 計算済みのファイルをダウンロード
+    5. **コピー処理** - 2枚目の計算結果を3枚目にコピー
+    6. **最終保存** - 完了したファイルを保存
     """)
+    st.markdown('</div>', unsafe_allow_html=True)
     
-# --- メインのUI ---
+    wait_time = st.slider(
+        "計算待機時間（秒）", 
+        min_value=1, 
+        max_value=15, 
+        value=5, 
+        help="1枚目更新後、Excel関数の計算を待つ時間"
+    )
+    
+    st.info(f"⏱️ 設定された待機時間: **{wait_time}秒**")
+
+# --- ファイルアップロード ---
 st.subheader("📁 ファイルアップロード")
 uploaded_file = st.file_uploader(
     "更新元となるファイル（CSVまたはExcel）を選択してください",
@@ -228,19 +170,20 @@ uploaded_file = st.file_uploader(
 if uploaded_file:
     st.info(f"**選択中のファイル:** {uploaded_file.name}")
 
+# --- 実行ボタン ---
 is_pressed = st.button(
-    "Drive上のExcelを更新実行", 
+    "🚀 Drive上のExcelを更新実行", 
     type="primary", 
     use_container_width=True, 
     disabled=(uploaded_file is None or not file_id)
 )
 
-st.markdown("---")
-result_placeholder = st.empty()
+# 処理状況表示用
+if 'processing_log' not in st.session_state:
+    st.session_state.processing_log = []
 
-# --- ボタンが押された後の処理ロジック ---
+# --- メイン処理 ---
 if is_pressed:
-    # 処理開始前の最終チェック
     if uploaded_file is None:
         st.error("エラー: ファイルがアップロードされていません。")
         st.stop()
@@ -249,179 +192,200 @@ if is_pressed:
         st.error("エラー: Google DriveのファイルIDが入力されていません。")
         st.stop()
     
+    # 処理ログをリセット
+    st.session_state.processing_log = []
+    
     start_time = time.time()
     creds = get_google_creds()
 
     if creds:
         try:
-            with st.spinner('処理を実行中... しばらくお待ちください。'):
-                # 1. Drive APIサービスを構築
-                drive_service = build('drive', 'v3', credentials=creds)
-
-                # 2. アップロードされたファイル（A）からデータをDataFrameとして読み込む
-                if uploaded_file is None:
-                    st.error("ファイルがアップロードされていません。")
-                    st.stop()
-                
-                # ファイル形式をチェックして適切に読み込み
-                file_extension = uploaded_file.name.lower()
-                if file_extension.endswith('.csv'):
-                    source_df = pd.read_csv(uploaded_file)
-                elif file_extension.endswith(('.xlsx', '.xls')):
-                    source_df = pd.read_excel(uploaded_file, sheet_name=0)
+            # プログレスバー用のコンテナ
+            progress_container = st.container()
+            log_container = st.container()
+            
+            with progress_container:
+                if process_mode == "一括処理（1枚目のみ更新）":
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
                 else:
-                    st.error(f"サポートされていないファイル形式です: {uploaded_file.name}")
-                    st.stop()
-
-                # 3. Drive上のExcelファイル（B）をダウンロード
-                st.write("ステップ1/3: Drive上の既存ファイルをダウンロード中...")
-                try:
-                    request = drive_service.files().get_media(fileId=file_id)
-                    file_content_bytes = request.execute()
-                    fh = io.BytesIO(file_content_bytes)
-                except Exception as e:
-                    st.error(f"Driveからのファイルダウンロードに失敗しました。ファイルIDが正しいか確認してください: {e}")
-                    st.stop()
-                
-                # 4. openpyxlでExcelワークブックとして読み込み（マクロ対応）
-                st.write("ステップ2/3: Excelデータをメモリ上で編集中...")
-                # ワークブックを2種類読み込む: (1)編集・保存用(数式あり) (2)値の読み取り専用
-                fh.seek(0)
-                workbook = openpyxl.load_workbook(fh, keep_vba=True) # (1) こちらを編集して最後に保存する
-                fh.seek(0)
-                workbook_values_only = openpyxl.load_workbook(fh, keep_vba=True, data_only=True) # (2) こちらは値の読み取りにだけ使う
-                
-                # 5. 1枚目のシートを取得し、既存のデータをクリア
-                sheet_to_update = workbook.worksheets[0]
-                
-                # ヘッダー行を保持するかチェック
-                if sheet_to_update.max_row > 1:
-                    sheet_to_update.delete_rows(2, sheet_to_update.max_row)
-
-                # 6. 新しいデータを書き込む（ヘッダーがある場合は2行目から開始）
-                start_row = 2 if sheet_to_update.max_row >= 1 else 1
-                for r_idx, row in enumerate(dataframe_to_rows(source_df, index=False, header=False), start=start_row):
-                    for c_idx, value in enumerate(row, start=1):
-                        sheet_to_update.cell(row=r_idx, column=c_idx, value=value)
-
-                # 7. 2枚目→3枚目への固定範囲コピー処理
-                if enable_advanced_copy and target_col and target_row:
-                    st.write("ステップ2.5/3: 2枚目から3枚目への固定範囲コピー処理中...")
-                    if len(workbook.worksheets) >= 3:
-                        # ★★★★★★★★★★★★★★★★★★★★★★★
-                        # 修正点: 値の読み取り用シートと書き込み用シートを使い分ける
-                        sheet2_read_values = workbook_values_only.worksheets[1] # 値の読み取り用
-                        sheet3_write = workbook.worksheets[2]                 # 書き込み用
-                        # ★★★★★★★★★★★★★★★★★★★★★★★
-
-                        # 基本情報表示
-                        st.write(f"📊 シート情報:")
-                        st.write(f"  2枚目シート名: '{sheet2_read_values.title}'")
-                        st.write(f"  3枚目シート名: '{sheet3_write.title}'")
-                        
-                        # 2枚目の名前リストを取得（B列、7行目以降の奇数行）
-                        names_sheet2 = {}
-                        st.write("🔍 2枚目の名前を収集中（B列、7行目以降奇数行）...")
-                        for row in range(7, min(sheet2_read_values.max_row + 1, 100), 2):
-                            name = sheet2_read_values.cell(row=row, column=2).value  # B列
-                            if name and str(name).strip():
-                                clean_name = str(name).strip()
-                                names_sheet2[clean_name] = row
-                                st.write(f"  ✅ B{row}: '{clean_name}'")
-                        
-                        # 3枚目の名前リストを取得（N列、19行目以降）
-                        names_sheet3 = {}
-                        st.write("🔍 3枚目の名前を収集中（N列、19行目以降）...")
-                        for row in range(19, min(sheet3_write.max_row + 1, 200)):  # 19行目以降
-                            name = sheet3_write.cell(row=row, column=14).value  # N列
-                            if name and str(name).strip():
-                                clean_name = str(name).strip()
-                                names_sheet3[clean_name] = row
-                                st.write(f"  ✅ N{row}: '{clean_name}'")
-                        
-                        st.write(f"📊 収集結果:")
-                        st.write(f"  2枚目の名前数: {len(names_sheet2)} 個")
-                        st.write(f"  3枚目の名前数: {len(names_sheet3)} 個")
-                        
-                        # 名前のマッチング確認
-                        matched_names = set(names_sheet2.keys()) & set(names_sheet3.keys())
-                        st.write(f"  名前マッチ数: {len(matched_names)} 個")
-                        st.write(f"  マッチした名前: {list(matched_names)}")
-                        
-                        # 固定範囲コピー処理
-                        copy_count = 0
-                        copy_log = []
-                        
-                        # コピー範囲の定義
-                        copy_start_col = col_letter_to_num('C')  # C列 = 3
-                        copy_end_col = col_letter_to_num('CQ')   # CQ列 = 95
-                        
-                        paste_start_col = target_col - 2  # 基準セルの2つ前の列
-                        
-                        if not matched_names:
-                            st.warning("⚠️ マッチする名前が見つかりませんでした。")
-                        else:
-                            st.write(f"🚀 コピー開始: C〜CQ列（{copy_end_col - copy_start_col + 1}列）")
-                            st.write(f"📍 貼り付け先: {col_num_to_letter(paste_start_col)}列から")
-                            
-                            for name, sheet2_row in names_sheet2.items():
-                                if name in names_sheet3:
-                                    sheet3_row = names_sheet3[name]
-                                    copy_log.append(f"名前マッチ: {name} (2枚目{sheet2_row}行 → 3枚目{sheet3_row}行)")
-                                    
-                                    # C列からCQ列まで（固定範囲）をコピー
-                                    for col_offset in range(copy_end_col - copy_start_col + 1):
-                                        source_col = copy_start_col + col_offset
-                                        target_col_for_paste = paste_start_col + col_offset
-                                        
-                                        # ★★★★★ 修正点: 値の読み取り元を変更 ★★★★★
-                                        source_value = sheet2_read_values.cell(row=sheet2_row, column=source_col).value
-                                        
-                                        # ★★★★★ 修正点: 書き込み先を変更 ★★★★★
-                                        sheet3_write.cell(row=sheet3_row, column=target_col_for_paste).value = source_value
-                                        
-                                        if source_value is not None:
-                                            copy_count += 1
-                                        
-                                        # 進捗ログ（最初の5個のみ詳細表示）
-                                        if col_offset < 5:
-                                            source_col_letter = col_num_to_letter(source_col)
-                                            target_col_letter = col_num_to_letter(target_col_for_paste)
-                                            copy_log.append(f"    {source_col_letter}{sheet2_row}→{target_col_letter}{sheet3_row}: '{source_value}'")
-                            
-                            st.success(f"✅ {copy_count}個のセルを2枚目から3枚目にコピーしました")
-                            
-                            # コピーログを表示
-                            if copy_log:
-                                with st.expander("📊 コピー詳細ログ"):
-                                    for log in copy_log[:50]:  # 最初の50件のみ表示
-                                        st.text(log)
-                    else:
-                        st.warning("⚠️ ワークブックにシートが3枚未満のため、シート間コピーをスキップしました")
-
-                # 8. 変更をメモリ上で保存（xlsmとして保存）
+                    progress_bar = st.progress(0)
+                    status_text = st.empty()
+            
+            # Drive APIサービスを構築
+            drive_service = build('drive', 'v3', credentials=creds)
+            
+            # アップロードファイルの読み込み
+            status_text.text("📄 アップロードファイルを読み込み中...")
+            file_extension = uploaded_file.name.lower()
+            if file_extension.endswith('.csv'):
+                source_df = pd.read_csv(uploaded_file)
+            elif file_extension.endswith(('.xlsx', '.xls')):
+                source_df = pd.read_excel(uploaded_file, sheet_name=0)
+            else:
+                st.error(f"サポートされていないファイル形式です: {uploaded_file.name}")
+                st.stop()
+            
+            progress_bar.progress(0.1)
+            
+            # Drive上のファイルをダウンロード
+            status_text.text("☁️ Drive上のファイルをダウンロード中...")
+            request = drive_service.files().get_media(fileId=file_id)
+            file_content_bytes = request.execute()
+            fh = io.BytesIO(file_content_bytes)
+            
+            progress_bar.progress(0.2)
+            
+            # ワークブックを読み込み
+            status_text.text("📊 Excelワークブックを読み込み中...")
+            workbook = openpyxl.load_workbook(fh, keep_vba=True)
+            
+            progress_bar.progress(0.3)
+            
+            # 1枚目のシートを更新
+            status_text.text("✏️ 1枚目のシートを更新中...")
+            sheet_to_update = workbook.worksheets[0]
+            
+            # 既存データをクリア（ヘッダーは保持）
+            if sheet_to_update.max_row > 1:
+                sheet_to_update.delete_rows(2, sheet_to_update.max_row)
+            
+            # 新しいデータを書き込み
+            start_row = 2 if sheet_to_update.max_row >= 1 else 1
+            for r_idx, row in enumerate(dataframe_to_rows(source_df, index=False, header=False), start=start_row):
+                for c_idx, value in enumerate(row, start=1):
+                    sheet_to_update.cell(row=r_idx, column=c_idx, value=value)
+            
+            progress_bar.progress(0.5)
+            
+            if process_mode == "一括処理（1枚目のみ更新）":
+                # 一括処理の場合はそのまま保存
+                status_text.text("💾 ファイルを保存中...")
                 output_buffer = io.BytesIO()
                 workbook.save(output_buffer)
                 output_buffer.seek(0)
                 
-                # 9. 再構築したファイルで、Drive上のファイルBを上書き更新
-                st.write("ステップ3/3: Drive上のファイルを新しい内容で上書き中...")
-                # xlsmファイル用のMIMEタイプに変更
                 media = MediaIoBaseUpload(output_buffer, mimetype='application/vnd.ms-excel.sheet.macroEnabled.12')
-                drive_service.files().update(
-                    fileId=file_id,
-                    media_body=media
-                ).execute()
-
-            # --- 正常終了時のメッセージ ---
+                drive_service.files().update(fileId=file_id, media_body=media).execute()
+                
+                progress_bar.progress(1.0)
+                status_text.text("✅ 処理完了！")
+                
+            else:
+                # 段階処理の場合
+                status_text.text("💾 中間保存中...")
+                output_buffer = io.BytesIO()
+                workbook.save(output_buffer)
+                output_buffer.seek(0)
+                
+                media = MediaIoBaseUpload(output_buffer, mimetype='application/vnd.ms-excel.sheet.macroEnabled.12')
+                drive_service.files().update(fileId=file_id, media_body=media).execute()
+                
+                progress_bar.progress(0.6)
+                
+                # 待機時間
+                status_text.text(f"⏳ Excel関数の計算待機中... ({wait_time}秒)")
+                wait_progress = st.progress(0)
+                for i in range(wait_time):
+                    time.sleep(1)
+                    wait_progress.progress((i + 1) / wait_time)
+                    status_text.text(f"⏳ Excel関数の計算待機中... ({wait_time - i - 1}秒)")
+                
+                progress_bar.progress(0.7)
+                
+                # 計算済みファイルを再取得
+                status_text.text("🔄 計算済みファイルを再取得中...")
+                request = drive_service.files().get_media(fileId=file_id)
+                updated_file_content = request.execute()
+                updated_fh = io.BytesIO(updated_file_content)
+                
+                # 計算済みワークブックを読み込み
+                calculated_workbook = openpyxl.load_workbook(updated_fh, keep_vba=True, data_only=True)
+                final_workbook = openpyxl.load_workbook(updated_fh, keep_vba=True)
+                
+                progress_bar.progress(0.8)
+                
+                # 2枚目→3枚目のコピー処理
+                status_text.text("📋 2枚目→3枚目のコピー処理中...")
+                if len(calculated_workbook.worksheets) >= 3:
+                    sheet2_calculated = calculated_workbook.worksheets[1]  # 計算済みの2枚目
+                    sheet3_write = final_workbook.worksheets[2]            # 書き込み用3枚目
+                    
+                    # 2枚目の名前リスト（奇数行のみ: 7, 9, 11...）
+                    names_sheet2 = {}
+                    for row in range(7, min(sheet2_calculated.max_row + 1, 100), 2):
+                        name = sheet2_calculated.cell(row=row, column=2).value  # B列
+                        if name and str(name).strip():
+                            clean_name = str(name).strip()
+                            names_sheet2[clean_name] = row
+                    
+                    # 3枚目の名前リスト（N列、19行目以降）
+                    names_sheet3 = {}
+                    for row in range(19, min(sheet3_write.max_row + 1, 200)):
+                        name = sheet3_write.cell(row=row, column=14).value  # N列
+                        if name and str(name).strip():
+                            clean_name = str(name).strip()
+                            names_sheet3[clean_name] = row
+                    
+                    # マッチした名前のコピー処理
+                    copy_count = 0
+                    copy_log = []
+                    
+                    for name, sheet2_row in names_sheet2.items():
+                        if name in names_sheet3:
+                            sheet3_row = names_sheet3[name]
+                            copy_log.append(f"名前マッチ: {name} (2枚目{sheet2_row}行 → 3枚目{sheet3_row}行)")
+                            
+                            # C列以降のデータをコピー（計算済みの値）
+                            for col in range(3, min(sheet2_calculated.max_column + 1, 95)):
+                                calculated_value = sheet2_calculated.cell(row=sheet2_row, column=col).value
+                                # 3枚目の対応する列に貼り付け（調整が必要に応じて）
+                                target_col = col - 2  # 適宜調整
+                                sheet3_write.cell(row=sheet3_row, column=target_col).value = calculated_value
+                                
+                                if calculated_value is not None:
+                                    copy_count += 1
+                    
+                    # コピー結果をログに追加
+                    with log_container:
+                        st.success(f"✅ {copy_count}個の計算済みセルを2枚目から3枚目にコピーしました")
+                        st.info(f"📊 マッチした名前: {len(names_sheet2)} → {len(names_sheet3)} 中 {len(set(names_sheet2.keys()) & set(names_sheet3.keys()))} 件")
+                        
+                        if copy_log:
+                            with st.expander("📋 コピー詳細ログ"):
+                                for log in copy_log[:20]:  # 最初の20件
+                                    st.text(log)
+                
+                progress_bar.progress(0.9)
+                
+                # 最終保存
+                status_text.text("💾 最終保存中...")
+                final_buffer = io.BytesIO()
+                final_workbook.save(final_buffer)
+                final_buffer.seek(0)
+                
+                final_media = MediaIoBaseUpload(final_buffer, mimetype='application/vnd.ms-excel.sheet.macroEnabled.12')
+                drive_service.files().update(fileId=file_id, media_body=final_media).execute()
+                
+                progress_bar.progress(1.0)
+                status_text.text("✅ 段階処理完了！")
+            
+            # 完了メッセージ
             end_time = time.time()
             processing_time = end_time - start_time
             now_str = datetime.now().strftime("%Y年%m月%d日 %H:%M:%S")
-            result_placeholder.success(f"**更新完了！** Drive上のExcelファイルが更新されました。(日時: {now_str}, 処理時間: {processing_time:.2f}秒)")
+            
+            st.success(f"""
+            **🎉 更新完了！**
+            
+            - **処理モード**: {process_mode}
+            - **完了日時**: {now_str}
+            - **処理時間**: {processing_time:.1f}秒
+            - **対象ファイル**: `{file_id}`
+            """)
 
         except Exception as e:
-            result_placeholder.error(f"**エラーが発生しました:** {e}")
-            import traceback
-            st.text(traceback.format_exc())
-
-
+            st.error(f"**エラーが発生しました:** {e}")
+            with st.expander("詳細なエラー情報"):
+                import traceback
+                st.text(traceback.format_exc())
