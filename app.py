@@ -337,14 +337,24 @@ if is_pressed:
                             copy_log.append(f"名前マッチ: {name} (2枚目{sheet2_row}行 → 3枚目{sheet3_row}行)")
                             
                             # C列以降のデータをコピー（計算済みの値）
+                            # 2枚目のC列（3列目）→ 3枚目のO列（15列目）以降に対応
                             for col in range(3, min(sheet2_calculated.max_column + 1, 95)):
                                 calculated_value = sheet2_calculated.cell(row=sheet2_row, column=col).value
-                                # 3枚目の対応する列に貼り付け（調整が必要に応じて）
-                                target_col = col - 2  # 適宜調整
-                                sheet3_write.cell(row=sheet3_row, column=target_col).value = calculated_value
                                 
-                                if calculated_value is not None:
-                                    copy_count += 1
+                                # 正しい列位置計算: 2枚目のC列→3枚目のO列（15列目）
+                                target_col = col + 12  # C(3)→O(15), D(4)→P(16), E(5)→Q(17)...
+                                
+                                # 3枚目の列範囲を確認（O列=15列目以降）
+                                if target_col >= 15 and target_col <= 200:  # O列以降かつ妥当な範囲
+                                    sheet3_write.cell(row=sheet3_row, column=target_col).value = calculated_value
+                                    
+                                    if calculated_value is not None:
+                                        copy_count += 1
+                                        # 詳細ログ（最初の5個のみ）
+                                        if len(copy_log) < 20:
+                                            source_col_letter = col_num_to_letter(col)
+                                            target_col_letter = col_num_to_letter(target_col)
+                                            copy_log.append(f"    {source_col_letter}{sheet2_row}({calculated_value})→{target_col_letter}{sheet3_row}")
                     
                     # コピー結果をログに追加
                     with log_container:
